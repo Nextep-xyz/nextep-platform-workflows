@@ -4,8 +4,10 @@
 > Ningún proyecto define su propio pipeline; todos **llaman** a estos.
 > Qué se construye y en qué orden: [`SPEC.md`](./SPEC.md). Reglas para agentes: [`AGENTS.md`](./AGENTS.md).
 
-**Estado:** diseño. No hay workflows implementados todavía; se construyen por fases, empezando por un solo
-proyecto piloto (ver `SPEC.md §11`).
+**Estado:** P1 (`lego-aws-cicd` y `lego-aws-environment-deploy`) implementada y verificada **solo en local**
+(bats, actionlint, shellcheck, gitleaks). **No verificado contra una cuenta AWS real**: spikes S1/S3/S4 e integración
+en `dev` pendientes (`docs/adr/`, `test/sandbox/README.md`). No existe ningún tag `v1`; todavía no hay nada que consumir.
+La enmienda vigente sobre el resto del diseño está en `SPEC.md §0`; la guía de adopción en `docs/runbook.md`.
 
 **Este repo es público.** No contiene secretos, cuentas cloud, URLs internas ni referencias a proyectos
 concretos: todo lo específico entra por parámetros (`inputs`, `secrets`, `vars`) de quien llama. La seguridad
@@ -57,14 +59,15 @@ flowchart LR
 
 ## 3. Catálogo
 
-| Workflow | Para qué |
-|---|---|
-| `lego-aws-ecs` | Servicios en ECS: build multi-stage, push a ECR, migraciones de BD y despliegue con circuit breaker |
-| `lego-aws-lambda` | Single-Use Lambdas y Lambdaliths (incluido multi-tenant) |
-| `lego-azure-satellite` | Satélites de una arquitectura Core–Satélite en Azure (Container Apps / Web Apps) |
+| Workflow | Estado | Para qué |
+|---|---|---|
+| `lego-aws-cicd` | Implementado (P1) | Flujo rápido: gate → migración (si hay pendientes, túnel SSM) → deploy. `compute: lambda \| ecs` |
+| `lego-aws-environment-deploy` | Implementado (P1) | Ambiente completo: gate → infra (sin el stack del rol OIDC) → migraciones → verificación → seed; rollback por `image-tag` |
+| `lego-azure-satellite` | Diseño | Satélites Core–Satélite en Azure. Fuera de P1 |
 
-Los tres siguen la misma secuencia de jobs:
-**`quality-and-security-gate` → `database-migration` → `deploy` → `telemetry-phone-home`**.
+Los dos de AWS son por **flujo**, no por cómputo (`SPEC.md §0`). Secuencia del rápido:
+**`quality-and-security-gate` → `database-migration` → `deploy`**. El job `telemetry-phone-home` está escrito pero
+**comentado** hasta que exista el colector (sección 4).
 
 Además cada ejecución **le cuenta lo que pasó** a quien la lee: un resumen en la pestaña del run y un comentario
 en el PR cuando falla un gate o termina un deploy, con enlace directo al log.
@@ -72,6 +75,8 @@ en el PR cuando falla un gate o termina un deploy, con enlace directo al log.
 ---
 
 ## 4. Telemetría DORA ("phone home"), sin sorpresas
+
+> **Hoy no se envía nada:** el bloque está comentado en ambos workflows (un gate falla si se descomenta).
 
 El último job de cada workflow envía **una métrica de despliegue** a un colector **que tú configuras**
 (`telemetry-url`; si lo dejas vacío, no se envía nada), siempre (`if: always()`), incluso si el deploy falló. Sirve para medir frecuencia de despliegue, lead time, tasa de
@@ -91,5 +96,10 @@ nextep-platform-workflows/
 ├── README.md   ← la idea (este archivo)
 ├── SPEC.md     ← contratos, secuencia de jobs, plan por fases
 ├── AGENTS.md   ← reglas para agentes (CLAUDE.md lo importa)
-└── (se crean por fase) .github/workflows/  .github/actions/  scripts/  contracts/  test/  docs/
+├── .github/workflows/  lego-aws-cicd, lego-aws-environment-deploy, self-ci
+├── .github/actions/    composites internos (aws-oidc, ssm-tunnel, migrate, infra-deploy, ...)
+├── scripts/            lógica en bash, con tests
+├── contracts/          contratos máquina-legibles de cada workflow
+├── test/               bats, gates por disco, fixtures, sandbox/callers
+└── docs/               adr/ (spikes), iam/, parity/ (matriz), exceptions.yml, runbook.md
 ```
