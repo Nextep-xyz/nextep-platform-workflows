@@ -14,7 +14,7 @@ load 'lib/gates'
       group="$(jq -r --arg j "$job" '.jobs[$j].concurrency | if type == "object" then .group else . end // ""' <<<"$json")"
       cancel="$(jq -r --arg j "$job" '.jobs[$j].concurrency | if type == "object" then (."cancel-in-progress" | tostring) else "absent" end' <<<"$json")"
       case "$job" in
-        database-migration | deploy | infra-deploy)
+        database-migration | database-migration-before-deploy | deploy | infra-deploy | post-deploy)
           if [[ $group == deploy-lock-* ]]; then
             found=$((found + 1))
             [[ $cancel == false ]] || gate_violation "$wf" "job '$job': group '$group' must set cancel-in-progress: false (got '$cancel')"

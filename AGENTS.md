@@ -74,7 +74,8 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
   `docs/exceptions.yml`). Una entrada obsoleta o vencida falla el build.
 - **Reglas de los workflows (cada una tiene su gate):**
   - Toda `uses:` de terceros por **SHA**, no por tag. Referencias internas a composites por SHA (`release.sh`).
-  - Todo job declara `permissions:` mínimos; `id-token: write` solo en `database-migration`, `deploy` e `infra-deploy`.
+  - Todo job declara `permissions:` mínimos; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `database-migration-before-deploy`, `deploy`, `infra-deploy`, `post-deploy`).
+  - **Un composite no referencia a otro composite** (gate G11): el SHA de release se escribe solo en los workflows. La cuenta AWS nunca es input ni literal (GH5): sale del output `account-id` de `aws-oidc`.
   - **Nunca** `${{ inputs.* }}` ni `${{ github.event.* }}` dentro de `run:`: pásalos por `env:`.
   - **Nunca** `pull_request_target` con código del PR, ni `NODE_TLS_REJECT_UNAUTHORIZED`.
   - Credenciales: `::add-mask::` antes del primer uso, solo en el `env:` del paso que las necesita, nunca en
@@ -82,7 +83,7 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
   - `continue-on-error: true` **solo** en telemetría y reporte; el gate, la migración y el deploy fallan de verdad.
   - Telemetría: solo los campos del esquema (`additionalProperties: false`). Añadir un campo = nueva `schema_version`.
 - **Scripts:** bash con `set -euo pipefail`, `shellcheck` limpio y un test `bats` con `aws`/`az`/`curl` falsos.
-- **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml` (aún no existe; F3). **Nunca** crees, muevas ni
+- **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml` (existe, **sin ejecutar**; sus rulesets se configuran a mano en GitHub). **Nunca** crees, muevas ni
   borres un tag a mano. Un cambio incompatible = versión mayor.
 - **No modifiques repos de proyectos consumidores.** Se prueba en `test/sandbox/` con datos ficticios.
 - **Una fase = un commit coherente.** No empieces otra con la anterior en rojo. Al cerrar, actualiza
@@ -112,11 +113,11 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 | Ruta | Qué hay |
 |---|---|
 | `README.md`, `SPEC.md`, `AGENTS.md` | Idea; contratos y plan; este archivo |
-| `.github/workflows/` | `lego-aws-cicd.yml`, `lego-aws-environment-deploy.yml`, `self-ci.yml` (required check) |
-| `.github/actions/` | Composites: aws-oidc, setup-project, ssm-tunnel, migrate, validate-inputs, quality-gate, deploy-lambda, deploy-ecs, infra-deploy |
+| `.github/workflows/` | `lego-aws-cicd.yml`, `lego-aws-environment-deploy.yml`, `self-ci.yml` (required check), `release.yml` (único que crea tags) |
+| `.github/actions/` | Composites: aws-oidc, setup-project, ssm-tunnel, migrate, validate-inputs, quality-gate, deploy-lambda, deploy-ecs, infra-deploy, post-deploy |
 | `scripts/` | Lógica en bash, con tests (`test/bats/`) |
 | `contracts/` | Contrato de cada workflow (lo comprueba el gate `contract-sync`) |
 | `test/` | bats, gates por disco (`test/gates/`), fixtures, `sandbox/callers/` |
 | `docs/` | `adr/` (spikes, NOT VERIFIED), `iam/`, `parity/matrix.yml`, `exceptions.yml`, `runbook.md` |
 
-Aún **no existe**: `release.yml`, `scripts/release.sh` (F3), el tag `v1`, `lego-azure-satellite`. No lo inventes antes.
+Aún **no existe**: el tag `v1` (nadie ha ejecutado `release.yml`) ni `lego-azure-satellite`. No lo inventes antes.

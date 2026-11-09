@@ -8,13 +8,15 @@ load 'lib/gates'
 @test "G15/G22: database-migration is skipped when image-tag is set (workflows that have the input)" {
   gate_require_tools yq jq
   gate_discover_lego_workflows G15
-  local wf json cond
+  local wf json cond job
   for wf in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$wf")"
     jq -e '(.on.workflow_call.inputs // {}) | has("image-tag")' <<<"$json" >/dev/null || continue
-    cond="$(jq -r '.jobs["database-migration"].if // ""' <<<"$json")"
-    [[ $cond =~ image-tag[[:space:]]*==[[:space:]]*\'\' ]] ||
-      gate_violation "$wf" "job database-migration has no condition on image-tag == '' (the rollback must not migrate)"
+    while IFS= read -r job; do
+      cond="$(jq -r --arg j "$job" '.jobs[$j].if // ""' <<<"$json")"
+      [[ $cond =~ image-tag[[:space:]]*==[[:space:]]*\'\' ]] ||
+        gate_violation "$wf" "job $job has no condition on image-tag == '' (the rollback must not migrate)"
+    done < <(jq -r '.jobs | keys[] | select(startswith("database-migration"))' <<<"$json")
   done
   gate_finish G15
 }

@@ -43,3 +43,30 @@ load 'lib/gates'
   done
   gate_finish FLOW-P2
 }
+
+@test "P2 D3: migrate-before-deploy orders migration -> infra (true) or infra -> migration (false); post-deploy waits for both" {
+  gate_require_tools yq jq
+  gate_discover_lego_workflows FLOW-D3
+  local wf json
+  for wf in "${GATE_SUBJECTS[@]}"; do
+    json="$(gate_json "$wf")"
+    jq -e '(.on.workflow_call.inputs // {}) | has("migrate-before-deploy")' <<<"$json" >/dev/null || continue
+    jq -e '.jobs["infra-deploy"].needs | index("database-migration-before-deploy") != null' <<<"$json" >/dev/null ||
+      gate_violation "$wf" "job infra-deploy must need database-migration-before-deploy (true => migrate first)"
+    jq -r '.jobs["infra-deploy"].if // ""' <<<"$json" | grep -q "needs.database-migration-before-deploy.result == 'skipped'" ||
+      gate_violation "$wf" "job infra-deploy must also run when database-migration-before-deploy was skipped (false => P1 order)"
+    jq -r '.jobs["infra-deploy"].if // ""' <<<"$json" | grep -q "database-migration-before-deploy.result == 'success'" ||
+      gate_violation "$wf" "job infra-deploy must accept the before-migration only when it succeeded or was skipped (a failed migration means no deploy)"
+    jq -r '.jobs["database-migration-before-deploy"].if // ""' <<<"$json" | grep -q "inputs.migrate-before-deploy" ||
+      gate_violation "$wf" "job database-migration-before-deploy ignores migrate-before-deploy"
+    jq -r '.jobs["database-migration"].if // ""' <<<"$json" | grep -q "!inputs.migrate-before-deploy" ||
+      gate_violation "$wf" "job database-migration must be skipped when migrate-before-deploy is true (one migration per run)"
+    jq -e '.jobs["database-migration"].needs | index("infra-deploy") != null' <<<"$json" >/dev/null ||
+      gate_violation "$wf" "job database-migration must need infra-deploy (P1 order)"
+    jq -e '(.jobs["post-deploy"].needs | index("infra-deploy") != null and index("database-migration") != null and index("database-migration-before-deploy") != null)' <<<"$json" >/dev/null ||
+      gate_violation "$wf" "job post-deploy must need infra-deploy and both migration jobs"
+    jq -r '.jobs["post-deploy"].if // ""' <<<"$json" | grep -q "needs.infra-deploy.result == 'success'" ||
+      gate_violation "$wf" "job post-deploy must require infra-deploy to succeed"
+  done
+  gate_finish FLOW-D3
+}
