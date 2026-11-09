@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Ephemeral Postgres for integration tests (P-CI-03). The password is random and masked; the URL goes to the step
 # OUTPUT (database-url) so only the test step that asks for it sees it. Never the runner env file.
-# Env: TEST_PG_PORT (default 5432), TEST_PG_IMAGE (default postgres:16-alpine), TEST_PG_TIMEOUT (default 60)
+# Env: TEST_PG_PORT (default 5432), TEST_PG_IMAGE (default postgres:16-alpine; empty means the default),
+#      TEST_PG_TIMEOUT (default 60). `test-postgres.sh --stop` removes the container (the composite runs it with always()).
 set -euo pipefail
 # shellcheck source=lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/common.sh"
 
-port="${TEST_PG_PORT:-5432}"
-image="${TEST_PG_IMAGE:-postgres:16-alpine}"
 name=lego-test-postgres
+if [[ ${1:-} == --stop ]]; then # always-run cleanup step: removes the container even when the tests failed
+  docker rm --force --volumes "$name" >/dev/null 2>&1 || true
+  log "ephemeral Postgres removed"
+  exit 0
+fi
+
+port="${TEST_PG_PORT:-5432}"
+image="${TEST_PG_IMAGE:-}"
+[[ -n $image ]] || image=postgres:16-alpine
 password="$(openssl rand -hex 16)"
 mask "$password"
 

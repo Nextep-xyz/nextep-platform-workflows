@@ -25,6 +25,10 @@ inputs:
     description: Start an ephemeral Postgres for the tests.
     required: false
     default: "false"
+  test-database-image:
+    description: Image (fixed tag or digest) of the disposable Postgres. Non-empty also starts it.
+    required: false
+    default: ""
   build-command:
     description: App build (compute ecs).
     required: false
@@ -44,17 +48,18 @@ runs:
       run: |
         set -euo pipefail
         "$SCRIPTS/derive-context.sh" >>"$GITHUB_OUTPUT"
-    # parity: P-CI-03
+    # parity: P-CI-03, H-04
     - name: Start the ephemeral Postgres
       id: pg
-      if: inputs.test-postgres == 'true'
+      if: inputs.test-postgres == 'true' || inputs.test-database-image != ''
       shell: bash
       env:
         SCRIPTS: ${{ github.action_path }}/../../../scripts
+        TEST_PG_IMAGE: ${{ inputs.test-database-image }}
       run: |
         set -euo pipefail
         "$SCRIPTS/test-postgres.sh"
-    # parity: P-CI-02
+    # parity: P-CI-02, H-03, H-05
     - name: Lint
       shell: bash
       env:
@@ -83,6 +88,13 @@ runs:
       run: |
         set -euo pipefail
         "$SCRIPTS/run-command.sh" test
+    - name: Remove the ephemeral Postgres
+      if: always() && (inputs.test-postgres == 'true' || inputs.test-database-image != '')
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+      run: |
+        "$SCRIPTS/test-postgres.sh" --stop
     # parity: P-CI-04
     - name: Build the app
       if: inputs.compute == 'ecs'

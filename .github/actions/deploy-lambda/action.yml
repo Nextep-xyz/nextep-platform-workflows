@@ -10,6 +10,10 @@ inputs:
   aws-region:
     description: AWS region.
     required: true
+  aws-account-id:
+    description: Account id of the assumed role (output account-id of the aws-oidc composite). Exposed to the command as AWS_ACCOUNT_ID.
+    required: false
+    default: ""
   build-command:
     description: Build command.
     required: false
@@ -54,6 +58,7 @@ runs:
         PROJECT: ${{ inputs.project }}
         ENVIRONMENT: ${{ inputs.environment }}
         AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
         BUILD_COMMAND: ${{ inputs.build-command }}
         DEPLOY_COMMAND: ${{ inputs.deploy-command }}
         HOTSWAP_COMMAND: ${{ inputs.hotswap-command }}

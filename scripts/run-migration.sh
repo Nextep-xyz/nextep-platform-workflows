@@ -2,10 +2,14 @@
 # One tunnel session per job (P1-D7): [secret] -> tunnel up -> wait -> commands -> teardown (always).
 #   cicd:               verify; if it fails (pending): pre -> migrate -> verify (must pass); then post (seed).
 #   environment-deploy: pre -> migrate -> verify (MUST pass, else the job fails red) -> post (seed).
+# DB_ACCESS=iam-direct (P2-D2): no tunnel, no secret, no DATABASE_URL. The commands get DB_ENDPOINT and the OIDC
+# session of the job (AWS_* in the environment) and sign their own IAM token.
 # The DATABASE_URL exists ONLY in the environment of the commands it runs, never in the runner env file or in a step output.
 #
 # Env (set by the migrate composite):
 #   MODE AWS_REGION BASTION_ID DB_ENDPOINT DB_PORT DB_SECRET_ID DB_NAME DB_SCHEMA DB_SSL_MODE DB_URL_TEMPLATE CA_BUNDLE
+#   DB_ACCESS (ssm-tunnel | iam-direct, default ssm-tunnel); with iam-direct only MODE AWS_REGION DB_ENDPOINT and the
+#   three commands are required (DB_ENDPOINT_PARAM may replace DB_ENDPOINT: it is read from SSM)
 #   MIGRATION_PRE_COMMAND MIGRATION_COMMAND MIGRATION_VERIFY_COMMAND POST_MIGRATE_COMMAND MIGRATION_TIMEOUT_MINUTES
 #   PROJECT APP_ENV APP_STAGE STACK_SUFFIX (contract variables, inherited by the commands)
 #   TUNNEL_TIMEOUT / TUNNEL_INTERVAL (defaults 60 / 2)
@@ -16,43 +20,63 @@ source "$here/lib/common.sh"
 # shellcheck source=fetch-db-secret.sh
 source "$here/fetch-db-secret.sh"
 
-require_env MODE AWS_REGION BASTION_ID DB_ENDPOINT DB_PORT DB_SECRET_ID DB_NAME DB_SSL_MODE DB_URL_TEMPLATE MIGRATION_COMMAND MIGRATION_VERIFY_COMMAND
-[[ $MODE == cicd || $MODE == environment-deploy ]] || die "run-migration: MODE must be cicd or environment-deploy (got '$MODE')"
-case "$DB_SSL_MODE" in verify-full | require) ;; *) die "run-migration: db-ssl-mode must be verify-full or require (got '$DB_SSL_MODE')" ;; esac
-if [[ $DB_SSL_MODE == verify-full && -z ${CA_BUNDLE:-} ]]; then
-  die "run-migration: db-ssl-mode=verify-full needs CA_BUNDLE (the pinned RDS CA bundle)"
+DB_ACCESS="${DB_ACCESS:-ssm-tunnel}"
+case "$DB_ACCESS" in ssm-tunnel | iam-direct) ;; *) die "run-migration: db-access must be ssm-tunnel or iam-direct (got '$DB_ACCESS')" ;; esac
+if [[ $DB_ACCESS == iam-direct ]]; then
+  if [[ -z ${DB_ENDPOINT:-} && -n ${DB_ENDPOINT_PARAM:-} ]]; then
+    DB_ENDPOINT="$(aws ssm get-parameter --region "${AWS_REGION:-}" --name "$DB_ENDPOINT_PARAM" --query Parameter.Value --output text)" ||
+      die "run-migration: could not read the database endpoint from SSM parameter '$DB_ENDPOINT_PARAM'"
+  fi
+  require_env MODE AWS_REGION DB_ENDPOINT MIGRATION_COMMAND MIGRATION_VERIFY_COMMAND
+else
+  require_env MODE AWS_REGION BASTION_ID DB_ENDPOINT DB_PORT DB_SECRET_ID DB_NAME DB_SSL_MODE DB_URL_TEMPLATE MIGRATION_COMMAND MIGRATION_VERIFY_COMMAND
+  case "$DB_SSL_MODE" in verify-full | require) ;; *) die "run-migration: db-ssl-mode must be verify-full or require (got '$DB_SSL_MODE')" ;; esac
+  if [[ $DB_SSL_MODE == verify-full && -z ${CA_BUNDLE:-} ]]; then
+    die "run-migration: db-ssl-mode=verify-full needs CA_BUNDLE (the pinned RDS CA bundle)"
+  fi
 fi
+[[ $MODE == cicd || $MODE == environment-deploy ]] || die "run-migration: MODE must be cicd or environment-deploy (got '$MODE')"
 timeout_min="${MIGRATION_TIMEOUT_MINUTES:-20}"
 tunnel_dir="${TUNNEL_DIR:-${RUNNER_TEMP:-/tmp}/ssm-tunnel}"
 
-teardown() { "$here/ssm-tunnel-down.sh" || true; }
-trap teardown EXIT
+url=""
+ca_for_cmd=""
+iam_endpoint="${DB_ENDPOINT:-}"
+if [[ $DB_ACCESS == ssm-tunnel ]]; then
+  teardown() { "$here/ssm-tunnel-down.sh" || true; }
+  trap teardown EXIT
 
-# 1. credentials: masked first, kept in non-exported variables
-fetch_db_secret "$DB_SECRET_ID"
-url="$(TPL_USER="$DB_USER" TPL_PASSWORD="$DB_PASSWORD" TPL_HOST="$DB_ENDPOINT" TPL_PORT="$DB_PORT" TPL_DB="$DB_NAME" \
-  TPL_SCHEMA="${DB_SCHEMA:-}" TPL_SSLMODE="$DB_SSL_MODE" TPL_PROJECT="${PROJECT:-}" TPL_STAGE="${APP_STAGE:-}" \
-  TPL_ENV="${APP_ENV:-}" TPL_REGION="$AWS_REGION" \
-  "$here/resolve-template.sh" --db-url db-url-template "$DB_URL_TEMPLATE")"
-mask "$url"
+  # 1. credentials: masked first, kept in non-exported variables
+  fetch_db_secret "$DB_SECRET_ID"
+  url="$(TPL_USER="$DB_USER" TPL_PASSWORD="$DB_PASSWORD" TPL_HOST="$DB_ENDPOINT" TPL_PORT="$DB_PORT" TPL_DB="$DB_NAME" \
+    TPL_SCHEMA="${DB_SCHEMA:-}" TPL_SSLMODE="$DB_SSL_MODE" TPL_PROJECT="${PROJECT:-}" TPL_STAGE="${APP_STAGE:-}" \
+    TPL_ENV="${APP_ENV:-}" TPL_REGION="$AWS_REGION" \
+    "$here/resolve-template.sh" --db-url db-url-template "$DB_URL_TEMPLATE")"
+  mask "$url"
 
-# 2. tunnel
-"$here/ssm-tunnel-up.sh"
-pid="$(cat "$tunnel_dir/ssm-tunnel.pid")"
-"$here/wait-for-port.sh" --port "$DB_PORT" --pid "$pid" --log "$tunnel_dir/ssm-tunnel.log" \
-  --timeout "${TUNNEL_TIMEOUT:-60}" --interval "${TUNNEL_INTERVAL:-2}"
+  # 2. tunnel
+  "$here/ssm-tunnel-up.sh"
+  pid="$(cat "$tunnel_dir/ssm-tunnel.pid")"
+  "$here/wait-for-port.sh" --port "$DB_PORT" --pid "$pid" --log "$tunnel_dir/ssm-tunnel.log" \
+    --timeout "${TUNNEL_TIMEOUT:-60}" --interval "${TUNNEL_INTERVAL:-2}"
 
-ca_for_cmd="${CA_BUNDLE:-}"
+  ca_for_cmd="${CA_BUNDLE:-}"
+fi
 
 # 3. commands. The subshell scopes DATABASE_URL and drops this script's own control variables.
+access_mode="$DB_ACCESS" # DB_ACCESS itself is unset inside the command subshell
 run_db() { # run_db <stage-name> <command>
   local stage=$1 cmd=$2 rc=0
   log "::group::${stage}"
   (
-    unset MODE BASTION_ID DB_ENDPOINT DB_SECRET_ID DB_URL_TEMPLATE DB_USER DB_PASSWORD DB_NAME DB_SCHEMA DB_PORT DB_SSL_MODE \
+    unset MODE BASTION_ID DB_ENDPOINT DB_ENDPOINT_PARAM DB_ACCESS DB_SECRET_ID DB_URL_TEMPLATE DB_USER DB_PASSWORD DB_NAME DB_SCHEMA DB_PORT DB_SSL_MODE \
       CA_BUNDLE TUNNEL_TIMEOUT TUNNEL_INTERVAL \
       MIGRATION_PRE_COMMAND MIGRATION_COMMAND MIGRATION_VERIFY_COMMAND POST_MIGRATE_COMMAND MIGRATION_TIMEOUT_MINUTES
-    export DATABASE_URL="$url"
+    if [[ $access_mode == iam-direct ]]; then
+      export DB_ENDPOINT="$iam_endpoint"
+    else
+      export DATABASE_URL="$url"
+    fi
     if [[ -n $ca_for_cmd ]]; then
       export PGSSLROOTCERT="$ca_for_cmd" NODE_EXTRA_CA_CERTS="$ca_for_cmd"
     fi

@@ -233,7 +233,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions: { contents: read }
     env:
-      AWS_ACCOUNT_ID: "123456789012"
+      AWS_ACCOUNT_ID: "not-from-the-role"
     steps: [{ run: echo ok }]
 YAML
   red aws-account.bats "lego-aws-bad.yml: input 'aws-account-id' looks like an account id"

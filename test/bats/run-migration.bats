@@ -177,3 +177,87 @@ teardown() { "$SCRIPTS/ssm-tunnel-down.sh" >/dev/null 2>&1 || true; }
     [[ "$output" == *"db-ssl-mode must be verify-full or require"* ]]
   done
 }
+
+# ---- P2: db-access=iam-direct (DSQL) -----------------------------------------------------------------------------------
+
+iam_env() {
+  export DB_ACCESS=iam-direct
+  unset BASTION_ID DB_SECRET_ID DB_NAME DB_SCHEMA DB_PORT DB_SSL_MODE DB_URL_TEMPLATE CA_BUNDLE
+}
+
+@test "GH2: iam-direct opens no tunnel, reads no secret and leaves nothing in GITHUB_ENV" {
+  iam_env
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 0 ]
+  ! grep -q 'ssm start-session' "$FAKE_LOG"
+  ! grep -q 'secretsmanager' "$FAKE_LOG"
+  [ ! -s "$GITHUB_ENV" ]
+  [ ! -f "$TUNNEL_DIR/ssm-tunnel.pid" ]
+  [ "$(paste -sd, "$ORDER")" = "migrate,verify" ]
+}
+
+@test "GH2: iam-direct hands the commands DB_ENDPOINT and the contract variables, never DATABASE_URL or control variables" {
+  iam_env
+  export MIGRATION_COMMAND='env >"$OUT"'
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 0 ]
+  grep -qx "DB_ENDPOINT=db.example.internal" "$OUT"
+  local v
+  for v in PROJECT APP_ENV APP_STAGE STACK_SUFFIX AWS_REGION; do grep -q "^${v}=" "$OUT"; done
+  for v in DATABASE_URL DB_USER DB_PASSWORD DB_ACCESS DB_SECRET_ID MODE BASTION_ID MIGRATION_COMMAND PGSSLROOTCERT; do
+    ! grep -q "^${v}=" "$OUT" || { echo "$v leaked to the command"; return 1; }
+  done
+  [[ "$output" != *"add-mask"* ]]
+}
+
+@test "GH2: iam-direct reads the endpoint from SSM when only the parameter name is given" {
+  iam_env
+  unset DB_ENDPOINT
+  export DB_ENDPOINT_PARAM=/shop/Dev/database-endpoint-host MIGRATION_COMMAND='env >"$OUT"'
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 0 ]
+  grep -q 'ssm get-parameter' "$FAKE_LOG"
+  grep -qx "DB_ENDPOINT=db.example.internal" "$OUT"
+  export FAKE_MISSING=/shop/Dev/database-endpoint-host
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"could not read the database endpoint from SSM parameter '/shop/Dev/database-endpoint-host'"* ]]
+}
+
+@test "GH8: iam-direct cicd with status 0 does not migrate; pending migrates and verifies; a failed migration or verify fails the job" {
+  iam_env
+  export MODE=cicd MIGRATION_VERIFY_COMMAND=true
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"migration skipped"* ]]
+  [ ! -s "$ORDER" ]
+
+  iam_env
+  export MODE=cicd MIGRATION_VERIFY_COMMAND='[ -f "$BATS_TEST_TMPDIR/aligned2" ]' MIGRATION_COMMAND='echo migrate >>"$ORDER"; touch "$BATS_TEST_TMPDIR/aligned2"'
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 0 ]
+  [ "$(paste -sd, "$ORDER")" = "migrate" ]
+
+  iam_env
+  export MODE=cicd MIGRATION_VERIFY_COMMAND='exit 1' MIGRATION_COMMAND='exit 7'
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"stage 'migration' failed (exit 7)"* ]]
+
+  iam_env
+  export MODE=environment-deploy MIGRATION_VERIFY_COMMAND='exit 1' MIGRATION_COMMAND='echo migrate >>"$ORDER"'
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"NOT aligned"* ]]
+}
+
+@test "GH3: an unknown db-access is refused by the script itself, and ssm-tunnel (the default) still needs its inputs" {
+  export DB_ACCESS=vpn
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"db-access must be ssm-tunnel or iam-direct"* ]]
+  unset DB_ACCESS BASTION_ID
+  run "$SCRIPTS/run-migration.sh"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"BASTION_ID"* ]]
+}

@@ -15,21 +15,34 @@ inputs:
   aws-region:
     description: AWS region.
     required: true
+  db-access:
+    description: ssm-tunnel (default; secret + SSM tunnel + DATABASE_URL) or iam-direct (no tunnel, no secret, IAM token signed by the command).
+    required: false
+    default: ssm-tunnel
+  db-endpoint-ssm-param:
+    description: Template of the SSM parameter with the database endpoint. Used by iam-direct only (ssm-tunnel gets the endpoint from the ssm-tunnel composite).
+    required: false
+    default: ""
   bastion-id:
-    description: Output of the ssm-tunnel composite.
-    required: true
+    description: Output of the ssm-tunnel composite (ssm-tunnel only).
+    required: false
+    default: ""
   db-endpoint:
-    description: Output of the ssm-tunnel composite.
-    required: true
+    description: Output of the ssm-tunnel composite (ssm-tunnel only).
+    required: false
+    default: ""
   ca-bundle:
-    description: Output of the ssm-tunnel composite.
-    required: true
+    description: Output of the ssm-tunnel composite (ssm-tunnel only).
+    required: false
+    default: ""
   db-secret-id:
-    description: Template of the secret id (keys username and password).
-    required: true
+    description: Template of the secret id (keys username and password). ssm-tunnel only.
+    required: false
+    default: ""
   db-name:
-    description: Database name.
-    required: true
+    description: Database name. ssm-tunnel only.
+    required: false
+    default: ""
   db-schema:
     description: Database schema.
     required: false
@@ -43,8 +56,9 @@ inputs:
     required: false
     default: verify-full
   db-url-template:
-    description: Template of DATABASE_URL.
-    required: true
+    description: Template of DATABASE_URL. ssm-tunnel only.
+    required: false
+    default: ""
   migration-pre-command:
     description: Hook that runs before the migration (generic; debt, see the spec).
     required: false
@@ -67,7 +81,7 @@ runs:
   using: composite
   steps:
     # parity: P-CI-08, P-EN-09
-    - name: Resolve the secret id and the stage
+    - name: Resolve the secret id, the endpoint parameter and the stage
       id: names
       shell: bash
       env:
@@ -75,22 +89,28 @@ runs:
         PROJECT: ${{ inputs.project }}
         ENVIRONMENT: ${{ inputs.environment }}
         TPL_REGION: ${{ inputs.aws-region }}
+        DB_ACCESS: ${{ inputs.db-access }}
         SECRET_TEMPLATE: ${{ inputs.db-secret-id }}
+        ENDPOINT_TEMPLATE: ${{ inputs.db-endpoint-ssm-param }}
       run: |
         set -euo pipefail
         stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
         export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
-        {
-          echo "stage=$stage"
-          echo "secret-id=$("$SCRIPTS/resolve-template.sh" db-secret-id "$SECRET_TEMPLATE")"
-        } >>"$GITHUB_OUTPUT"
-    # parity: P-CI-09, P-CI-14, P-EN-10, P-EN-11, P-EN-12, P-EN-13
-    - name: Migrate over the SSM tunnel
+        echo "stage=$stage" >>"$GITHUB_OUTPUT"
+        if [[ $DB_ACCESS == iam-direct ]]; then
+          echo "endpoint-param=$("$SCRIPTS/resolve-template.sh" db-endpoint-ssm-param "$ENDPOINT_TEMPLATE")" >>"$GITHUB_OUTPUT"
+        else
+          echo "secret-id=$("$SCRIPTS/resolve-template.sh" db-secret-id "$SECRET_TEMPLATE")" >>"$GITHUB_OUTPUT"
+        fi
+    # parity: P-CI-09, P-CI-14, P-EN-10, P-EN-11, P-EN-12, P-EN-13, H-10, H-11
+    - name: Migrate
       shell: bash
       env:
         SCRIPTS: ${{ github.action_path }}/../../../scripts
         MODE: ${{ inputs.mode }}
         AWS_REGION: ${{ inputs.aws-region }}
+        DB_ACCESS: ${{ inputs.db-access }}
+        DB_ENDPOINT_PARAM: ${{ steps.names.outputs.endpoint-param }}
         BASTION_ID: ${{ inputs.bastion-id }}
         DB_ENDPOINT: ${{ inputs.db-endpoint }}
         CA_BUNDLE: ${{ inputs.ca-bundle }}
@@ -114,7 +134,7 @@ runs:
         set -euo pipefail
         "$SCRIPTS/run-migration.sh"
     - name: Tear down the tunnel
-      if: always()
+      if: always() && inputs.db-access != 'iam-direct'
       shell: bash
       env:
         SCRIPTS: ${{ github.action_path }}/../../../scripts

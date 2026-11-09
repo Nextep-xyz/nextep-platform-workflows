@@ -15,6 +15,10 @@ inputs:
   compute:
     description: lambda or ecs.
     required: true
+  aws-account-id:
+    description: Account id of the assumed role (output account-id of the aws-oidc composite). Exposed to the command as AWS_ACCOUNT_ID.
+    required: false
+    default: ""
   image-tag:
     description: Empty builds a new image; non-empty is a rollback (verify only).
     required: false
@@ -89,6 +93,7 @@ runs:
         APP_STAGE: ${{ steps.ctx.outputs.stage }}
         STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
         AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
       run: |
         set -euo pipefail
         "$SCRIPTS/run-command.sh" prepare
@@ -117,6 +122,7 @@ runs:
         APP_STAGE: ${{ steps.ctx.outputs.stage }}
         STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
         AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
       run: |
         set -euo pipefail
         "$SCRIPTS/run-command.sh" clean
@@ -132,6 +138,7 @@ runs:
         APP_STAGE: ${{ steps.ctx.outputs.stage }}
         STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
         AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
       run: |
         set -euo pipefail
         "$SCRIPTS/run-command.sh" "infra bootstrap"
@@ -181,6 +188,7 @@ runs:
         APP_STAGE: ${{ steps.ctx.outputs.stage }}
         STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
         AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
       run: |
         set -euo pipefail
         "$SCRIPTS/infra-deploy.sh"

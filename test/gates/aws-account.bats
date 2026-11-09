@@ -9,9 +9,12 @@ load 'lib/gates'
   gate_discover GH5 contracts .github/workflows .github/actions -type f '(' -name '*.contract.yml' -o -name 'lego-*.yml' -o -name 'action.yml' ')'
   local f line
   for f in "${GATE_SUBJECTS[@]}"; do
-    while IFS= read -r line; do
-      gate_violation "$f" "input '$line' looks like an account id: the account comes from the assumed role (sts get-caller-identity), never from the caller"
-    done < <(gate_json "$f" | jq -r '[(.inputs // {}), (.on.workflow_call.inputs // {})] | .[] | keys[] | select(test("account"; "i"))')
+    # composites may take the account id from the aws-oidc output; callers of the reusable workflows may not provide it
+    if [[ $f != .github/actions/* ]]; then
+      while IFS= read -r line; do
+        gate_violation "$f" "input '$line' looks like an account id: the account comes from the assumed role (sts get-caller-identity), never from the caller"
+      done < <(gate_json "$f" | jq -r '[(.inputs // {}), (.on.workflow_call.inputs // {})] | .[] | keys[] | select(test("account"; "i"))')
+    fi
     while IFS= read -r line; do
       gate_violation "$f" "AWS_ACCOUNT_ID is assigned a literal (${line})"
     done < <(grep -nE 'AWS_ACCOUNT_ID["'"'"']?[[:space:]]*[:=][[:space:]]*["'"'"']?[^[:space:]$"'"'"'{(]' "$GATES_ROOT/$f" | grep -vE '^[0-9]+:[[:space:]]*#' || true)

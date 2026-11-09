@@ -35,6 +35,11 @@ s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(5); time.sleep(120)' "${FAKE_P
         ;;
     esac
     ;;
+  "sts get-caller-identity")
+    if [[ -n ${FAKE_STS_FAIL:-} ]]; then echo "ExpiredToken" >&2; exit 254; fi
+    printf '%s
+' "${FAKE_ACCOUNT-$(printf '%012d' 7)}"
+    ;;
   "ecr describe-images")
     if [[ -n ${FAKE_ECR_MISSING:-} ]]; then echo "ImageNotFoundException" >&2; exit 254; fi
     echo "tag"
