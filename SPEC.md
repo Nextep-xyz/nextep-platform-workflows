@@ -18,6 +18,24 @@
 
 ---
 
+## 0. Enmienda P1 (2026-11-09) — vigente sobre lo que diga el resto de este documento
+
+La primera fase de implementación cambió tres cosas respecto al diseño original de abajo. Donde haya contradicción, **manda esta enmienda**:
+
+| # | Cambia | Antes | Ahora (P1) |
+|---|---|---|---|
+| E1 | Eje de los workflows | Por cómputo: `lego-aws-ecs`, `lego-aws-lambda` | **Por flujo:** `lego-aws-cicd` y `lego-aws-environment-deploy`; el cómputo es el input `compute` (`lambda` \| `ecs`). Los nombres de archivo están congelados (quedan en el `job_workflow_ref` de las trust policies) |
+| E2 | Infra | Fuera de alcance | **Dentro** de `lego-aws-environment-deploy`, con el stack del rol OIDC siempre excluido (guard G19) |
+| E3 | Modo de migración | `ecs-task` primero, `ssm-tunnel` después | **P1 = `ssm-tunnel` endurecido**; `ecs-task` queda para una etapa posterior |
+
+Además, en P1: **sin GitHub Environments** (el ambiente es un input lógico y el rol sale de `vars` del repo, una por ambiente; la barrera
+principal es `branch-map`, obligatorio en `environment-deploy`), **sin input `runner`** (todo en `ubuntu-latest`), `id-token: write` solo en
+`database-migration`, `deploy` e `infra-deploy`, y el bloque DORA escrito pero **comentado** en ambos workflows.
+Los contratos máquina-legibles están en `contracts/`, la matriz de paridad en `docs/parity/matrix.yml` y la guía de adopción y operación en
+`docs/runbook.md`. Lo no verificado (spikes S1, S3, S4 y las pruebas de integración en dev) sigue marcado como tal en `docs/adr/` y en `test/sandbox/`.
+
+---
+
 ## 1. Problema y alcance
 
 **Problema.** El pipeline "desplegar un ambiente" existe copiado en cada repo (§2) y divergió: ARN literales,
