@@ -231,3 +231,131 @@ run_validate() { run "$SCRIPTS/validate-inputs.sh" "$1"; }
   [ "$status" -eq 1 ]
   [[ "$output" == *"input 'ecs-deploy-mode'"* ]]
 }
+
+# ---- P2: lambdalith + DSQL ----------------------------------------------------------------------------------------
+
+@test "P2 hub-like callers pass in both flows (iam-direct needs only the endpoint, no bastion/secret/db-name)" {
+  hub_like_env
+  run_validate cicd
+  [ "$status" -eq 0 ]
+  hub_like_env_deploy
+  run_validate environment-deploy
+  [ "$status" -eq 0 ]
+}
+
+@test "GH3: db-access=iam-direct without db-endpoint-ssm-param names the input; ssm-tunnel still needs the P1 inputs" {
+  hub_like_env_deploy
+  export INPUT_DB_ENDPOINT_SSM_PARAM=""
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'db-endpoint-ssm-param' is required when db-access=iam-direct"* ]]
+
+  hub_like_env_deploy
+  export INPUT_DB_ACCESS=ssm-tunnel
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'bastion-id-ssm-param' is required to migrate"* ]]
+  [[ "$output" == *"input 'db-secret-id' is required to migrate"* ]]
+
+  hub_like_env_deploy
+  export INPUT_DB_ACCESS=vpn
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'db-access' must be ssm-tunnel or iam-direct (got 'vpn')"* ]]
+}
+
+@test "GH3: a cicd caller with iam-direct and no endpoint does not migrate (no endpoint, no database stage)" {
+  hub_like_env
+  export INPUT_DB_ENDPOINT_SSM_PARAM=""
+  run_validate cicd
+  [ "$status" -eq 0 ]
+}
+
+@test "GH4: test-database-image needs a fixed tag or a digest; latest and untagged are rejected naming the input" {
+  local img
+  for img in postgres:latest postgres "Postgres:17" "postgres:17 --privileged"; do
+    hub_like_env
+    export INPUT_TEST_DATABASE_IMAGE="$img"
+    run_validate cicd
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"input 'test-database-image'"* ]] || { echo "$img: $output"; return 1; }
+  done
+  for img in postgres:17 postgres:16-alpine registry.example.com/team/pg:17.2 "postgres@sha256:$(printf 'a%.0s' {1..64})"; do
+    hub_like_env
+    export INPUT_TEST_DATABASE_IMAGE="$img"
+    run_validate cicd
+    [ "$status" -eq 0 ] || { echo "$img: $output"; return 1; }
+  done
+}
+
+@test "install-dirs: absolute paths, '..' and spaces are rejected; a list of roots passes" {
+  local d
+  for d in /etc ../x "app, infra" "app;rm -rf /" "app/" "a..b"; do
+    hub_like_env
+    export INPUT_INSTALL_DIRS="$d"
+    run_validate cicd
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"input 'install-dirs'"* ]] || { echo "$d: $output"; return 1; }
+  done
+  for d in . app app,infra services/api,infra; do
+    hub_like_env
+    export INPUT_INSTALL_DIRS="$d"
+    run_validate cicd
+    [ "$status" -eq 0 ] || { echo "$d: $output"; return 1; }
+  done
+}
+
+@test "GH9: hotswap-environments never admits prod (dev,stg passes)" {
+  hub_like_env
+  export INPUT_HOTSWAP_ENVIRONMENTS='dev,stg,prod'
+  run_validate cicd
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'hotswap-environments' must not include prod"* ]]
+  hub_like_env
+  export INPUT_HOTSWAP_ENVIRONMENTS='dev,stg'
+  run_validate cicd
+  [ "$status" -eq 0 ]
+}
+
+@test "GH6: post-deploy-command cannot deploy the OIDC role stack, in either flow, even with a project prefix" {
+  local flow
+  for flow in cicd environment-deploy; do
+    if [[ $flow == cicd ]]; then hub_like_env; else hub_like_env_deploy; fi
+    export INPUT_POST_DEPLOY_COMMAND='pnpm exec cdk deploy ShopGithubOidc --exclusively'
+    run_validate "$flow"
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"input 'post-deploy-command' mentions 'GithubOidc'"* ]] || { echo "$flow: $output"; return 1; }
+  done
+  hub_like_env_deploy
+  export INPUT_INFRA_DEPLOY_COMMAND='cdk ls | grep -v ShopGithubOidc | xargs cdk deploy'
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'infra-deploy-command' mentions 'GithubOidc'"* ]]
+  hub_like_env_deploy
+  export INPUT_INFRA_DEPLOY_COMMAND='cdk ls | grep -viE "oidc|envmanager" | xargs cdk deploy'
+  run_validate environment-deploy
+  [ "$status" -eq 0 ]
+}
+
+@test "GH7: the hub-like branch-map maps several branches to one environment and names an unmapped branch" {
+  hub_like_env_deploy
+  export REF_NAME=infra-deploy INPUT_ENVIRONMENT=dev
+  run_validate environment-deploy
+  [ "$status" -eq 0 ]
+  export REF_NAME=feature-x
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"branch 'feature-x' is not in branch-map"* ]]
+  export REF_NAME=develop INPUT_ENVIRONMENT=prod
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"branch 'develop' maps to 'dev' in branch-map but environment is 'prod'"* ]]
+}
+
+@test "migrate-before-deploy must be a boolean" {
+  hub_like_env_deploy
+  export INPUT_MIGRATE_BEFORE_DEPLOY=maybe
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'migrate-before-deploy' must be true or false"* ]]
+}

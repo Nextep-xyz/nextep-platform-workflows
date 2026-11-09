@@ -221,3 +221,21 @@ YAML
   printf 'runs:\n  using: composite\n  steps: []\n' >"$FX/.github/actions/inner/action.yml"
   red release-pins.bats "0 subjects discovered"
 }
+
+@test "GH5 red: an aws-account-id input and a literal AWS_ACCOUNT_ID are named" {
+  cat >"$WF" <<'YAML'
+on:
+  workflow_call:
+    inputs:
+      aws-account-id: { type: string, required: true }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    env:
+      AWS_ACCOUNT_ID: "123456789012"
+    steps: [{ run: echo ok }]
+YAML
+  red aws-account.bats "lego-aws-bad.yml: input 'aws-account-id' looks like an account id"
+  [[ "$output" == *"lego-aws-bad.yml: AWS_ACCOUNT_ID is assigned a literal"* ]]
+}

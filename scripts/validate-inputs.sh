@@ -47,6 +47,42 @@ if [[ -n "$(val node-version)" && -n "$(val node-version-file)" ]]; then
   err "inputs 'node-version' and 'node-version-file' are mutually exclusive"
 fi
 
+# --- P2 inputs: db-access (GH3), install-dirs, test-database-image (GH4), hotswap in prod (GH9) ---------------------
+db_access="$(val db-access)"
+[[ -n $db_access ]] || db_access=ssm-tunnel
+case "$db_access" in ssm-tunnel | iam-direct) ;; *) err "input 'db-access' must be ssm-tunnel or iam-direct (got '$db_access')" ;; esac
+
+install_dirs="$(val install-dirs)"
+if [[ -n $install_dirs ]]; then
+  IFS=',' read -r -a _dirs <<<"$install_dirs"
+  for d in "${_dirs[@]}"; do
+    if [[ $d != . && ! $d =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] || [[ $d == *..* ]] || [[ $d == */ ]]; then
+      err "input 'install-dirs' has an invalid directory '$d' (comma separated relative paths, no '..', no spaces, no trailing '/')"
+    fi
+  done
+fi
+
+test_image="$(val test-database-image)"
+if [[ -n $test_image ]]; then
+  if [[ $test_image =~ ^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]; then
+    :
+  elif [[ $test_image =~ ^[a-z0-9][a-z0-9._/-]*:([A-Za-z0-9._-]+)$ ]]; then
+    [[ ${BASH_REMATCH[1]} != latest ]] || err "input 'test-database-image' must not use the tag 'latest' (got '$test_image')"
+  else
+    err "input 'test-database-image' must be an image with a fixed tag or a digest, for example postgres:17 (got '$test_image')"
+  fi
+fi
+
+if [[ $flow == cicd ]]; then
+  IFS=',' read -r -a _hs <<<"$(val hotswap-environments)"
+  for e in "${_hs[@]}"; do
+    [[ $e != prod ]] || err "input 'hotswap-environments' must not include prod: hotswap leaves drift in CloudFormation and is never allowed in production"
+  done
+fi
+if [[ $flow == environment-deploy ]]; then
+  case "$(val migrate-before-deploy)" in true | false | "") ;; *) err "input 'migrate-before-deploy' must be true or false (got '$(val migrate-before-deploy)')" ;; esac
+fi
+
 # --- G26: the event that triggered the caller must be the allowed one --------------------------------------------
 if [[ $flow == environment-deploy ]]; then
   [[ $event == workflow_dispatch ]] || err "environment-deploy only runs on workflow_dispatch (got event '$event')"
@@ -86,13 +122,18 @@ else
     fi
   fi
   [[ -n "$(val bastion-id-ssm-param)" ]] && migrates=true
+  [[ $db_access == iam-direct && -n "$(val db-endpoint-ssm-param)" ]] && migrates=true
   [[ "$(val ecs-deploy-mode)" == force-new-deployment ]] || err "input 'ecs-deploy-mode' only supports force-new-deployment in P1 (got '$(val ecs-deploy-mode)')"
 fi
 if [[ $flow == environment-deploy && $migrates == true ]] || [[ $flow == cicd && $migrates == true ]]; then
-  need bastion-id-ssm-param "to migrate"
-  need db-endpoint-ssm-param "to migrate"
-  need db-secret-id "to migrate"
-  need db-name "to migrate"
+  if [[ $db_access == iam-direct ]]; then
+    need db-endpoint-ssm-param "when db-access=iam-direct (the endpoint is the only thing the migration needs)"
+  else
+    need bastion-id-ssm-param "to migrate"
+    need db-endpoint-ssm-param "to migrate"
+    need db-secret-id "to migrate"
+    need db-name "to migrate"
+  fi
 fi
 
 # --- image-tag (rollback) --------------------------------------------------------------------------------------------
@@ -103,16 +144,25 @@ if [[ -n $image_tag ]]; then
 fi
 
 # --- G19: the OIDC role stack is never deployed from a run -----------------------------------------------------------
-if [[ $flow == environment-deploy ]]; then
-  while IFS= read -r stack; do
-    [[ -n $stack ]] || continue
-    for cmd_input in infra-deploy-command infra-bootstrap-command; do
-      if grep -Eiq "(^|[^A-Za-z0-9])${stack}([^A-Za-z0-9]|\$)" <<<"$(val "$cmd_input")"; then
-        err "input '$cmd_input' targets the OIDC role stack '$stack': it must never be deployed from a run"
-      fi
-    done
-  done <"$here/lib/oidc-stack-names"
-fi
+guarded_inputs=(post-deploy-command)
+[[ $flow == environment-deploy ]] && guarded_inputs+=(infra-deploy-command infra-bootstrap-command)
+while IFS= read -r stack; do
+  [[ -n $stack ]] || continue
+  for cmd_input in "${guarded_inputs[@]}"; do
+    if grep -Eiq "(^|[^A-Za-z0-9])${stack}([^A-Za-z0-9]|\$)" <<<"$(val "$cmd_input")"; then
+      err "input '$cmd_input' targets the OIDC role stack '$stack': it must never be deployed from a run"
+    fi
+  done
+done <"$here/lib/oidc-stack-names"
+# Prefixed names (for example <Project>GithubOidc) have no word boundary: match them as case-insensitive substrings.
+while IFS= read -r frag; do
+  [[ -n $frag ]] || continue
+  for cmd_input in "${guarded_inputs[@]}"; do
+    if grep -Fiq -- "$frag" <<<"$(val "$cmd_input")"; then
+      err "input '$cmd_input' mentions '$frag', the name of an OIDC role stack: it must never be deployed from a run (to exclude it from a listing, filter on 'oidc')"
+    fi
+  done
+done <"$here/lib/oidc-stack-substrings"
 
 # --- JSON-valued inputs ----------------------------------------------------------------------------------------------
 json_input() { # json_input <name> <jq type test> <expected>

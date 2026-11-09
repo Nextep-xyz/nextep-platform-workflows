@@ -15,7 +15,7 @@ load 'lib/gates'
 
   # tags found in the tree (workflows, composites, scripts)
   local tagged tag
-  tagged="$(cd "$GATES_ROOT" && grep -rhoE '#[[:space:]]*parity:[[:space:]]*P-[A-Z]{2}-[0-9]{2}([[:space:],]+P-[A-Z]{2}-[0-9]{2})*' .github scripts 2>/dev/null | grep -oE 'P-[A-Z]{2}-[0-9]{2}' | sort -u || true)"
+  tagged="$(cd "$GATES_ROOT" && grep -rhoE '#[[:space:]]*parity:[[:space:]]*(P-[A-Z]{2}|H)-[0-9]{2}([[:space:],]+(P-[A-Z]{2}|H)-[0-9]{2})*' .github scripts 2>/dev/null | grep -oE '(P-[A-Z]{2}|H)-[0-9]{2}' | sort -u || true)"
   for tag in $tagged; do
     jq -e --arg id "$tag" '[.parity[].id] | index($id) != null' <<<"$m_json" >/dev/null ||
       gate_violation "$matrix" "tag '# parity: $tag' in the tree is not in the matrix"
@@ -57,7 +57,7 @@ load 'lib/gates'
   gate_discover_lego_workflows G18
   local wf
   for wf in "${GATE_SUBJECTS[@]}"; do
-    grep -qE '#[[:space:]]*parity:[[:space:]]*P-' "$GATES_ROOT/$wf" || gate_violation "$wf" "no '# parity: <id>' tag in the workflow"
+    grep -qE '#[[:space:]]*parity:[[:space:]]*(P-|H-)' "$GATES_ROOT/$wf" || gate_violation "$wf" "no '# parity: <id>' tag in the workflow"
   done
   gate_finish G18
 }

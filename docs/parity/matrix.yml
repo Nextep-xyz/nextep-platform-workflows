@@ -38,3 +38,19 @@ parity:
   - { id: P-EN-12, flow: environment-deploy, summary: "Verify the database is aligned; otherwise fail red", status: covered, inputs: [migration-verify-command] }
   - { id: P-EN-13, flow: environment-deploy, summary: "Idempotent seed", status: covered, inputs: [post-migrate-command] }
   - { id: P-EN-14, flow: environment-deploy, summary: "Per-environment concurrency, never cancelling", status: covered, inputs: [project, environment] }
+  # ---- P2: lambdalith + DSQL (generic ids; the real pipelines live in the private inventory) ------------------------
+  - { id: H-01, flow: environment-deploy, summary: "Map several branches to one environment and reject the rest", status: covered, inputs: [branch-map, environment] }
+  - { id: H-02, flow: environment-deploy, summary: "Install more than one package root", status: covered, inputs: [install-dirs] }
+  - { id: H-03, flow: environment-deploy, summary: "Typecheck and tests before deploying the infrastructure", status: covered, inputs: [lint-command, test-command] }
+  - { id: H-04, flow: environment-deploy, summary: "Integration tests against a disposable Postgres of a pinned image", status: covered, inputs: [test-database-image] }
+  - { id: H-05, flow: environment-deploy, summary: "Typecheck of the infrastructure code", status: covered, inputs: [lint-command] }
+  - { id: H-06, flow: environment-deploy, summary: "OIDC with the role from a repository variable", status: covered, inputs: [role-arn] }
+  - { id: H-07, flow: environment-deploy, summary: "Account id for the IaC tool comes from the assumed role, never from an input", status: covered, inputs: [role-arn] }
+  - { id: H-08, flow: environment-deploy, summary: "Deploy every stack of the environment except the OIDC stack", status: covered, inputs: [infra-deploy-command] }
+  - { id: H-09, flow: environment-deploy, summary: "Post-deploy verification of the created resources", status: covered, inputs: [post-deploy-command] }
+  - { id: H-10, flow: environment-deploy, summary: "Migrations against a database reached with IAM, no tunnel and no secret", status: covered, inputs: [db-access, db-endpoint-ssm-param, migration-command] }
+  - { id: H-11, flow: cicd, summary: "Migration status decides whether the fast flow migrates", status: covered, inputs: [migration-verify-command, db-access] }
+  - { id: H-12, flow: environment-deploy, summary: "Hook that runs after the migration (grants that depend on its result)", status: covered, inputs: [post-deploy-command, migrate-before-deploy] }
+  - { id: H-13, flow: environment-deploy, summary: "Optional deploy variable from the caller (expression in the caller's own with:)", status: covered, inputs: [infra-deploy-command] }
+  - { id: H-14, flow: environment-deploy, summary: "Per-environment concurrency, never cancelling", status: covered, inputs: [project, environment] }
+  - { id: H-15, flow: environment-deploy, summary: "Migrate before deploying the application code (expand/contract)", status: covered, inputs: [migrate-before-deploy] }

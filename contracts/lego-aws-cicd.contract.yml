@@ -128,6 +128,19 @@ inputs:
   docker-target:
     type: string
     default: ""
+  # --- P2 (lambdalith + DSQL): all optional and additive; the defaults keep the P1 behaviour -------------------------
+  db-access:
+    type: string
+    default: "ssm-tunnel"
+  install-dirs:
+    type: string
+    default: "."
+  test-database-image:
+    type: string
+    default: ""
+  post-deploy-command:
+    type: string
+    default: ""
   # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
   # telemetry-url: { type: string, default: "" }
   # DORA-PLACEHOLDER:END

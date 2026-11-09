@@ -43,3 +43,19 @@ env_deploy_env() {
   export INPUT_DB_SECRET_ID='{project}/{env}/core/database-credentials'
   export INPUT_DB_NAME=shop_db INPUT_DB_SCHEMA=shop_schema
 }
+
+# A caller shaped like the lambdalith + DSQL one (fictional: project shop). IAM-direct database, two package roots.
+hub_like_env() {
+  common_env
+  export INPUT_COMPUTE=lambda INPUT_DB_ACCESS=iam-direct INPUT_INSTALL_DIRS=app,infra INPUT_TEST_DATABASE_IMAGE=postgres:17
+  export INPUT_DB_ENDPOINT_SSM_PARAM='/shop/{stage}/database-endpoint-host'
+  export INPUT_DEPLOY_COMMAND='pnpm --dir infra exec cdk deploy --exclusively ShopApi-{stage}'
+  export INPUT_HOTSWAP_ENVIRONMENTS='dev,stg' INPUT_POST_DEPLOY_COMMAND='node scripts/verify.mjs'
+}
+
+hub_like_env_deploy() {
+  hub_like_env
+  export EVENT_NAME=workflow_dispatch REF_NAME=infra-deploy INPUT_INFRA_DEPLOY_COMMAND='pnpm --dir infra exec cdk deploy --all'
+  export INPUT_BRANCH_MAP='{"main":"prod","staging":"stg","develop":"dev","infra-deploy":"dev"}'
+  export INPUT_MIGRATE_BEFORE_DEPLOY=true
+}
