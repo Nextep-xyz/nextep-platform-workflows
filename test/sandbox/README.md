@@ -9,6 +9,7 @@ of a scratch repository in a **dev** account, set the repository variable `AWS_R
 |---|---|
 | [`cicd-ecs.yml`](callers/cicd-ecs.yml) | `lego-aws-cicd`, `compute: ecs` |
 | [`cicd-lambda.yml`](callers/cicd-lambda.yml) | `lego-aws-cicd`, `compute: lambda` |
+| [`environment-deploy.yml`](callers/environment-deploy.yml) | `lego-aws-environment-deploy`, `compute: lambda` |
 
 **Status: NOT VERIFIED.** Nothing here has been run against a real account. The dev integration runs of the spec
 (`SPEC.md` P1.3/P1.4) are pending until a dev AWS account is available.

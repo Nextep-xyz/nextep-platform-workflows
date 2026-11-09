@@ -1,0 +1,30 @@
+# Fictional caller (project "shop", compute lambda). Manual only: the reusable workflow refuses any other event.
+name: environment-deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment: { type: choice, options: [dev, stg, prod], required: true }
+      image-tag: { type: string, default: "" } # only meaningful for compute ecs (rollback)
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  environment-deploy:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@main
+    with:
+      project: shop
+      environment: ${{ inputs.environment }}
+      compute: lambda
+      # NOT VERIFIED: that vars[format(...)] resolves inside with: of a caller. Fallback: one caller per environment.
+      role-arn: ${{ vars[format('AWS_ROLE_ARN_{0}', inputs.environment)] }}
+      branch-map: '{"main":"prod","staging":"stg","infra-deploy":"dev"}'
+      prepare-command: pnpm run db:generate
+      prepare-check-command: test -s node_modules/.generated/client.js
+      clean-command: rm -rf infra/cdk.out
+      infra-deploy-command: pnpm --filter infra run deploy:ci
+      bastion-id-ssm-param: /{project}/core/{stage}/bastion-id
+      db-endpoint-ssm-param: /{project}/core/{stage}/db-endpoint
+      db-secret-id: "{project}/{env}/core/database-credentials"
+      db-name: shop_db
+      db-schema: shop_schema
+      migration-command: pnpm run db:deploy
+      migration-verify-command: pnpm run db:status
+      post-migrate-command: pnpm run db:seed

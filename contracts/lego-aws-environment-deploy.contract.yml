@@ -1,5 +1,3 @@
-# gate-exception: G12
-# The workflow of this contract lands in phase P1.4; until then the contract has no workflow to compare against.
 # Contract of .github/workflows/lego-aws-environment-deploy.yml — machine-readable source of truth (gate G12).
 # Changing a job name or an input name is a MAJOR version: it breaks required checks and callers.
 workflow: lego-aws-environment-deploy
