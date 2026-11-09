@@ -10,10 +10,14 @@ arg_after() { # arg_after <flag>
 ALL_ARGS=("$@")
 case "$1 $2" in
   "ssm get-parameter")
+    if [[ " ${FAKE_MISSING:-} " == *" $(arg_after --name) "* ]]; then echo "ParameterNotFound" >&2; exit 254; fi
     case "$(arg_after --name)" in
+      */ssm-values/*) echo "${FAKE_SSM_VALUE-ssm-secret-value}" ;;
+      *cluster*) echo "shop-cluster" ;;
+      *service*) echo "shop-service" ;;
       *bastion*) printf '%s\n' "${FAKE_BASTION_ID-i-0abc123}" ;;
       *endpoint*) printf '%s\n' "${FAKE_DB_ENDPOINT-db.example.internal}" ;;
-      *) echo "ParameterNotFound" >&2; exit 254 ;;
+      *) echo "value" ;;
     esac
     ;;
   "ssm describe-instance-information") printf '%s\n' "${FAKE_PING-Online}" ;;
@@ -30,6 +34,15 @@ s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(5); time.sleep(120)' "${FAKE_PORT:?}"
         ;;
     esac
+    ;;
+  "ecr describe-images")
+    if [[ -n ${FAKE_ECR_MISSING:-} ]]; then echo "ImageNotFoundException" >&2; exit 254; fi
+    echo "tag"
+    ;;
+  "ecs update-service") echo "shop-service" ;;
+  "secretsmanager describe-secret")
+    if [[ " ${FAKE_MISSING:-} " == *" $(arg_after --secret-id) "* ]]; then echo "ResourceNotFoundException" >&2; exit 254; fi
+    echo ok
     ;;
   *) echo "fake aws: unhandled call: $*" >&2; exit 2 ;;
 esac

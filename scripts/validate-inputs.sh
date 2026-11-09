@@ -8,6 +8,15 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$here/lib/common.sh"
 
+# The composite hands every workflow input as one JSON object (INPUTS_JSON); expose them as INPUT_<NAME>.
+if [[ -n ${INPUTS_JSON:-} ]]; then
+  while IFS= read -r key; do
+    name="${key^^}"
+    printf -v "INPUT_${name//-/_}" '%s' "$(jq -r --arg k "$key" '.[$k] | tostring' <<<"$INPUTS_JSON")"
+    export "INPUT_${name//-/_}"
+  done < <(jq -r 'keys[]' <<<"$INPUTS_JSON")
+fi
+
 flow="${1:?usage: validate-inputs.sh <cicd|environment-deploy>}"
 [[ $flow == cicd || $flow == environment-deploy ]] || die "validate-inputs: unknown flow '$flow'"
 

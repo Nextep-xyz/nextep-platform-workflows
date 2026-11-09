@@ -1,0 +1,32 @@
+# Fictional caller (project "shop", compute lambda).
+name: cicd
+on:
+  push:
+    branches: [develop]
+    paths-ignore: ["**/*.md", "docs/**"]
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main
+    with:
+      project: shop
+      environment: dev
+      compute: lambda
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      lint-command: pnpm run lint
+      test-command: pnpm run test
+      test-postgres: true
+      bastion-id-ssm-param: /{project}/core/{stage}/bastion-id
+      db-endpoint-ssm-param: /{project}/core/{stage}/db-endpoint
+      db-secret-id: "{project}/{env}/core/database-credentials"
+      db-name: shop_db
+      db-schema: shop_schema
+      migration-command: pnpm run db:deploy
+      migration-verify-command: pnpm run db:status
+      post-migrate-command: pnpm run db:seed
+      build-command: pnpm run build
+      deploy-command: pnpm --filter infra run deploy:ci
+      hotswap-command: pnpm --filter infra run deploy:hotswap
+      hotswap-environments: dev
+      deploy-env-ssm: '{"UPSTREAM_URL":"/{project}/api/{stage}/upstream-url"}'
+      deploy-env-secrets: '{"API_KEY":"{project}/{env}/keys#apiKey"}'

@@ -1,0 +1,120 @@
+name: quality-gate
+description: Setup, lint, tests (with an optional ephemeral Postgres) and the app build for ECS. Scanning (gitleaks, trivy) is stage 2.
+inputs:
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  compute:
+    description: lambda or ecs.
+    required: true
+  package-manager:
+    description: npm or pnpm.
+    required: true
+  pnpm-version:
+    description: pnpm version.
+    required: false
+    default: ""
+  node-version:
+    description: Node version.
+    required: false
+    default: "22"
+  node-version-file:
+    description: Node version file.
+    required: false
+    default: ""
+  lint-command:
+    description: Lint command.
+    required: false
+    default: ""
+  test-command:
+    description: Test command.
+    required: false
+    default: ""
+  test-postgres:
+    description: Start an ephemeral Postgres for the tests.
+    required: false
+    default: "false"
+  build-command:
+    description: App build (compute ecs).
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Set up the project
+      uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+      with:
+        package-manager: ${{ inputs.package-manager }}
+        pnpm-version: ${{ inputs.pnpm-version }}
+        node-version: ${{ inputs.node-version }}
+        node-version-file: ${{ inputs.node-version-file }}
+    - name: Derive the stage
+      id: ctx
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/derive-context.sh" >>"$GITHUB_OUTPUT"
+    # parity: P-CI-03
+    - name: Start the ephemeral Postgres
+      id: pg
+      if: inputs.test-postgres == 'true'
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/test-postgres.sh"
+    # parity: P-CI-02
+    - name: Lint
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.lint-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" lint
+    # parity: P-CI-02
+    - name: Test
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.test-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        TEST_DATABASE_URL: ${{ steps.pg.outputs.database-url }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" test
+    # parity: P-CI-04
+    - name: Build the app
+      if: inputs.compute == 'ecs'
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.build-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" build

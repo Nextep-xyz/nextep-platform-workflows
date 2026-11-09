@@ -1,0 +1,106 @@
+name: deploy-ecs
+description: ECS quick deploy - checks the runtime configuration, builds and pushes the image (tag = commit) and forces a new deployment.
+inputs:
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  required-ssm-params:
+    description: JSON array of SSM parameter templates that must exist.
+    required: false
+    default: "[]"
+  required-secrets:
+    description: JSON array of secret id templates that must exist.
+    required: false
+    default: "[]"
+  ecs-cluster-ssm-param:
+    description: Template of the SSM parameter with the cluster name.
+    required: true
+  ecs-service-ssm-param:
+    description: Template of the SSM parameter with the service name.
+    required: true
+  ecr-repository:
+    description: Template of the ECR repository name.
+    required: true
+  dockerfile:
+    description: Dockerfile path.
+    required: false
+    default: Dockerfile
+  docker-context:
+    description: Build context.
+    required: false
+    default: .
+  docker-target:
+    description: Build target.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Resolve names
+      id: names
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        TPL_REGION: ${{ inputs.aws-region }}
+        CLUSTER_TEMPLATE: ${{ inputs.ecs-cluster-ssm-param }}
+        SERVICE_TEMPLATE: ${{ inputs.ecs-service-ssm-param }}
+        REPOSITORY_TEMPLATE: ${{ inputs.ecr-repository }}
+      run: |
+        set -euo pipefail
+        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
+        {
+          echo "cluster-param=$("$SCRIPTS/resolve-template.sh" ecs-cluster-ssm-param "$CLUSTER_TEMPLATE")"
+          echo "service-param=$("$SCRIPTS/resolve-template.sh" ecs-service-ssm-param "$SERVICE_TEMPLATE")"
+          echo "repository=$("$SCRIPTS/resolve-template.sh" ecr-repository "$REPOSITORY_TEMPLATE")"
+        } >>"$GITHUB_OUTPUT"
+    # parity: P-CI-07
+    - name: Check the runtime configuration exists
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        REQUIRED_SSM_PARAMS: ${{ inputs.required-ssm-params }}
+        REQUIRED_SECRETS: ${{ inputs.required-secrets }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/check-required.sh"
+    - name: Log in to ECR
+      id: ecr
+      uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+    # parity: P-CI-10
+    - name: Build and push the image
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        REGISTRY: ${{ steps.ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ steps.names.outputs.repository }}
+        IMAGE_TAG: ${{ github.sha }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        DOCKER_CONTEXT: ${{ inputs.docker-context }}
+        DOCKER_TARGET: ${{ inputs.docker-target }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/build-push-image.sh"
+    # parity: P-CI-13
+    - name: Force a new ECS deployment
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        AWS_REGION: ${{ inputs.aws-region }}
+        ECS_CLUSTER_PARAM: ${{ steps.names.outputs.cluster-param }}
+        ECS_SERVICE_PARAM: ${{ steps.names.outputs.service-param }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/ecs-deploy.sh"

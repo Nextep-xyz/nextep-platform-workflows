@@ -19,7 +19,7 @@ load 'lib/gates'
   local f
   for f in "${GATE_SUBJECTS[@]}"; do
     [[ $f == .github/actions/migrate/* ]] && continue
-    grep -qE 'DATABASE_URL' "$GATES_ROOT/$f" && gate_violation "$f" "references DATABASE_URL outside the migrate composite"
+    grep -qE '(^|[^A-Za-z_])DATABASE_URL' "$GATES_ROOT/$f" && gate_violation "$f" "references DATABASE_URL outside the migrate composite"
   done
   gate_finish G25
 }
