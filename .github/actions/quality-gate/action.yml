@@ -1,5 +1,5 @@
 name: quality-gate
-description: Setup, lint, tests (with an optional ephemeral Postgres) and the app build for ECS. Scanning (gitleaks, trivy) is stage 2.
+description: Lint, tests (with an optional ephemeral Postgres) and the app build for ECS. Scanning (gitleaks, trivy) is stage 2.
 inputs:
   project:
     description: Project prefix.
@@ -13,21 +13,6 @@ inputs:
   compute:
     description: lambda or ecs.
     required: true
-  package-manager:
-    description: npm or pnpm.
-    required: true
-  pnpm-version:
-    description: pnpm version.
-    required: false
-    default: ""
-  node-version:
-    description: Node version.
-    required: false
-    default: "22"
-  node-version-file:
-    description: Node version file.
-    required: false
-    default: ""
   lint-command:
     description: Lint command.
     required: false
@@ -46,14 +31,9 @@ inputs:
     default: ""
 runs:
   using: composite
+  # No internal `uses:` here on purpose (gate G11): the caller workflow runs setup-project first. A composite that references
+  # another composite of this repository would pin to a commit whose own reference is still @main.
   steps:
-    - name: Set up the project
-      uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
-      with:
-        package-manager: ${{ inputs.package-manager }}
-        pnpm-version: ${{ inputs.pnpm-version }}
-        node-version: ${{ inputs.node-version }}
-        node-version-file: ${{ inputs.node-version-file }}
     - name: Derive the stage
       id: ctx
       shell: bash

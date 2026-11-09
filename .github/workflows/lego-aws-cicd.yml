@@ -203,7 +203,15 @@ jobs:
         with:
           flow: cicd
           inputs-json: ${{ toJSON(inputs) }}
-      # parity: P-CI-01, P-CI-02, P-CI-03, P-CI-04
+      # parity: P-CI-01
+      - name: Set up the project
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: ${{ inputs.package-manager }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+          node-version: ${{ inputs.node-version }}
+          node-version-file: ${{ inputs.node-version-file }}
+      # parity: P-CI-02, P-CI-03, P-CI-04
       - name: Quality gate
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
         with:
@@ -211,10 +219,6 @@ jobs:
           environment: ${{ inputs.environment }}
           aws-region: ${{ inputs.aws-region }}
           compute: ${{ inputs.compute }}
-          package-manager: ${{ inputs.package-manager }}
-          pnpm-version: ${{ inputs.pnpm-version }}
-          node-version: ${{ inputs.node-version }}
-          node-version-file: ${{ inputs.node-version-file }}
           lint-command: ${{ inputs.lint-command }}
           test-command: ${{ inputs.test-command }}
           test-postgres: ${{ inputs.test-postgres }}

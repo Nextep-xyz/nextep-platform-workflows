@@ -205,3 +205,19 @@ YAML
   printf '#!/usr/bin/env bash\n# gate-exception: G9\necho clean\n' >"$FX/scripts/old.sh"
   red no-tls-bypass.bats "scripts/old.sh: stale G9 exception"
 }
+
+@test "G11 red: an internal reference inside a composite and a @main left in a workflow are named" {
+  mkdir -p "$FX/scripts/lib" "$FX/.github/actions/inner"
+  cp "$REPO_ROOT/scripts/release.sh" "$FX/scripts/"
+  cp "$REPO_ROOT/scripts/lib/common.sh" "$FX/scripts/lib/"
+  printf 'runs:\n  using: composite\n  steps:\n    - uses: Nextep-xyz/nextep-platform-workflows/.github/actions/other@main\n' >"$FX/.github/actions/inner/action.yml"
+  good_workflow
+  red release-pins.bats "actions/inner/action.yml: composite references this repository"
+  [[ "$output" == *"actions/inner/action.yml: internal reference left on a mutable ref by release.sh"* ]]
+}
+
+@test "G11 red: a tree with no workflow fails with '0 subjects' instead of passing" {
+  mkdir -p "$FX/.github/actions/inner"
+  printf 'runs:\n  using: composite\n  steps: []\n' >"$FX/.github/actions/inner/action.yml"
+  red release-pins.bats "0 subjects discovered"
+}
