@@ -24,3 +24,22 @@ load 'lib/gates'
   done
   gate_finish FLOW
 }
+
+@test "P2 (lambdalith + DSQL): the migration job is enabled by iam-direct and the post-deploy step runs after the deploy, with the role's account" {
+  gate_require_tools yq jq
+  gate_discover_lego_workflows FLOW-P2
+  local wf json
+  for wf in "${GATE_SUBJECTS[@]}"; do
+    json="$(gate_json "$wf")"
+    jq -e '.jobs | has("deploy")' <<<"$json" >/dev/null || continue
+    jq -r '.jobs["database-migration"].if' <<<"$json" | grep -q "inputs.db-access == 'iam-direct'" ||
+      gate_violation "$wf" "job database-migration is not enabled by db-access=iam-direct with an endpoint"
+    jq -r '.jobs["database-migration"].steps[] | select(.id == "tunnel") | .if' <<<"$json" | grep -q "inputs.db-access == 'ssm-tunnel'" ||
+      gate_violation "$wf" "the SSM tunnel step must run only when db-access=ssm-tunnel (iam-direct opens no tunnel)"
+    jq -e '[.jobs.deploy.steps[] | .uses // ""] | (map(test("/actions/deploy-lambda@")) | index(true)) as $d | (map(test("/actions/post-deploy@")) | index(true)) as $p | $d != null and $p != null and $p > $d' <<<"$json" >/dev/null ||
+      gate_violation "$wf" "job deploy must run post-deploy after the deploy step"
+    jq -e '.jobs.deploy.steps[] | select((.uses // "") | test("/actions/(deploy-lambda|post-deploy)@")) | .with["aws-account-id"] == "${{ steps.oidc.outputs.account-id }}"' <<<"$json" | grep -qv true &&
+      gate_violation "$wf" "deploy-lambda and post-deploy must get aws-account-id from the aws-oidc output"
+  done
+  gate_finish FLOW-P2
+}

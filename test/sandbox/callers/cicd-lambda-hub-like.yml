@@ -1,0 +1,28 @@
+# Fictional caller (project "shop"): lambdalith on a database reached with IAM (no tunnel, no secret), two package roots.
+# Pin the workflow by FULL SHA of a release while testing in a sensitive environment (never @main).
+name: cicd
+on:
+  push:
+    branches: [develop, main]
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main
+    with:
+      project: shop
+      environment: dev
+      compute: lambda
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      install-dirs: app,infra
+      node-version: "24"
+      lint-command: pnpm --dir app typecheck && pnpm --dir infra exec tsc --noEmit
+      test-database-image: postgres:17
+      test-command: pnpm --dir app test && INTEGRATION_DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir app test:integration
+      db-access: iam-direct
+      db-endpoint-ssm-param: /shop/{stage}/database-endpoint-host
+      migration-command: node app/scripts/ci-db-migrate.mjs
+      migration-verify-command: node app/scripts/ci-db-status.mjs
+      deploy-command: pnpm --dir infra exec cdk deploy --exclusively ShopApi-{stage} --require-approval never
+      hotswap-command: pnpm --dir infra exec cdk deploy --exclusively ShopApi-{stage} --hotswap --require-approval never
+      hotswap-environments: dev,stg
+      post-deploy-command: node app/scripts/verify-deploy.mjs

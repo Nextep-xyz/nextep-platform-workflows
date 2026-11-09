@@ -174,6 +174,22 @@ on:
         description: "Docker build target (empty means the last stage)."
         type: string
         default: ""
+      db-access:
+        description: "ssm-tunnel (secret + SSM tunnel) or iam-direct (no tunnel and no secret: the migration command signs its own IAM token)."
+        type: string
+        default: "ssm-tunnel"
+      install-dirs:
+        description: "Comma separated package roots to install, each with its own lockfile."
+        type: string
+        default: "."
+      test-database-image:
+        description: "Image of a disposable Postgres for the tests, with a fixed tag or a digest (never latest). Empty starts none."
+        type: string
+        default: ""
+      post-deploy-command:
+        description: "Command that runs after the deploy with the assumed role (verifications). Never deploys the OIDC role stack."
+        type: string
+        default: ""
       # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
       # telemetry-url: { type: string, default: "" }
       # DORA-PLACEHOLDER:END
@@ -197,7 +213,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # parity: P-CI-05
+      # parity: P-CI-05, H-01
       - name: Validate the inputs
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@main
         with:
@@ -211,6 +227,7 @@ jobs:
           pnpm-version: ${{ inputs.pnpm-version }}
           node-version: ${{ inputs.node-version }}
           node-version-file: ${{ inputs.node-version-file }}
+          install-dirs: ${{ inputs.install-dirs }}
       # parity: P-CI-02, P-CI-03, P-CI-04
       - name: Quality gate
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
@@ -219,6 +236,7 @@ jobs:
           environment: ${{ inputs.environment }}
           aws-region: ${{ inputs.aws-region }}
           compute: ${{ inputs.compute }}
+          test-database-image: ${{ inputs.test-database-image }}
           lint-command: ${{ inputs.lint-command }}
           test-command: ${{ inputs.test-command }}
           test-postgres: ${{ inputs.test-postgres }}
@@ -227,7 +245,8 @@ jobs:
   database-migration:
     name: database-migration
     needs: [quality-and-security-gate]
-    if: ${{ inputs.run-deploy && inputs.bastion-id-ssm-param != '' }}
+    # parity: H-10, H-11
+    if: ${{ inputs.run-deploy && (inputs.bastion-id-ssm-param != '' || (inputs.db-access == 'iam-direct' && inputs.db-endpoint-ssm-param != '')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -249,7 +268,8 @@ jobs:
           pnpm-version: ${{ inputs.pnpm-version }}
           node-version: ${{ inputs.node-version }}
           node-version-file: ${{ inputs.node-version-file }}
-      # parity: P-CI-06
+          install-dirs: ${{ inputs.install-dirs }}
+      # parity: P-CI-06, H-06
       - name: Assume the environment role
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
         with:
@@ -258,6 +278,7 @@ jobs:
       # parity: P-CI-08
       - name: Prepare the SSM tunnel
         id: tunnel
+        if: ${{ inputs.db-access == 'ssm-tunnel' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
         with:
           project: ${{ inputs.project }}
@@ -273,6 +294,8 @@ jobs:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
           aws-region: ${{ inputs.aws-region }}
+          db-access: ${{ inputs.db-access }}
+          db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
           bastion-id: ${{ steps.tunnel.outputs.bastion-id }}
           db-endpoint: ${{ steps.tunnel.outputs.db-endpoint }}
           ca-bundle: ${{ steps.tunnel.outputs.ca-bundle }}
@@ -317,13 +340,15 @@ jobs:
           pnpm-version: ${{ inputs.pnpm-version }}
           node-version: ${{ inputs.node-version }}
           node-version-file: ${{ inputs.node-version-file }}
-      # parity: P-CI-06
+          install-dirs: ${{ inputs.install-dirs }}
+      # parity: P-CI-06, H-06, H-07
       - name: Assume the environment role
+        id: oidc
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
-      # parity: P-CI-11, P-CI-12
+      # parity: P-CI-11, P-CI-12, H-08, H-13
       - name: Deploy the lambdas
         if: ${{ inputs.compute == 'lambda' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-lambda@main
@@ -331,12 +356,22 @@ jobs:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
           aws-region: ${{ inputs.aws-region }}
+          aws-account-id: ${{ steps.oidc.outputs.account-id }}
           build-command: ${{ inputs.build-command }}
           deploy-command: ${{ inputs.deploy-command }}
           hotswap-command: ${{ inputs.hotswap-command }}
           hotswap-environments: ${{ inputs.hotswap-environments }}
           deploy-env-ssm: ${{ inputs.deploy-env-ssm }}
           deploy-env-secrets: ${{ inputs.deploy-env-secrets }}
+      # parity: H-09
+      - name: Post-deploy command
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          aws-account-id: ${{ steps.oidc.outputs.account-id }}
+          post-deploy-command: ${{ inputs.post-deploy-command }}
       # parity: P-CI-07, P-CI-10, P-CI-13
       - name: Deploy the ECS service
         if: ${{ inputs.compute == 'ecs' }}
