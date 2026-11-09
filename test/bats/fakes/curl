@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fake curl: writes $FAKE_CURL_BODY to the --output file (no network).
+echo "curl $*" >>"${FAKE_LOG:-/dev/null}"
+out=""
+while (($#)); do
+  if [[ $1 == --output ]]; then out=$2; fi
+  shift
+done
+[[ -n $out ]] && printf '%s' "${FAKE_CURL_BODY-fake}" >"$out"
+exit "${FAKE_CURL_RC:-0}"

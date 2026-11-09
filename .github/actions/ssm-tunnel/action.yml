@@ -1,0 +1,73 @@
+name: ssm-tunnel
+description: >
+  Prepares the SSM tunnel: resolves the SSM parameter names, installs the pinned Session Manager plugin and the pinned
+  RDS CA bundle, and checks that the bastion is Online. The tunnel itself is opened and closed by the `migrate`
+  composite, inside one script, so it is always torn down.
+inputs:
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  bastion-id-ssm-param:
+    description: Template of the SSM parameter that holds the bastion instance id.
+    required: true
+  db-endpoint-ssm-param:
+    description: Template of the SSM parameter that holds the database endpoint.
+    required: true
+outputs:
+  bastion-id:
+    description: Bastion instance id.
+    value: ${{ steps.bastion.outputs.bastion-id }}
+  db-endpoint:
+    description: Database endpoint.
+    value: ${{ steps.bastion.outputs.db-endpoint }}
+  ca-bundle:
+    description: Path of the verified RDS CA bundle.
+    value: ${{ steps.plugin.outputs.ca-bundle }}
+runs:
+  using: composite
+  steps:
+    # parity: P-CI-08, P-EN-09
+    - name: Resolve the parameter names
+      id: names
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        TPL_REGION: ${{ inputs.aws-region }}
+        BASTION_TEMPLATE: ${{ inputs.bastion-id-ssm-param }}
+        ENDPOINT_TEMPLATE: ${{ inputs.db-endpoint-ssm-param }}
+      run: |
+        set -euo pipefail
+        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
+        {
+          echo "bastion-param=$("$SCRIPTS/resolve-template.sh" bastion-id-ssm-param "$BASTION_TEMPLATE")"
+          echo "endpoint-param=$("$SCRIPTS/resolve-template.sh" db-endpoint-ssm-param "$ENDPOINT_TEMPLATE")"
+        } >>"$GITHUB_OUTPUT"
+    # parity: P-CI-09, P-EN-09
+    - name: Install the pinned SSM plugin and the CA bundle
+      id: plugin
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/install-ssm-plugin.sh"
+    - name: Check that the bastion is Online
+      id: bastion
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        AWS_REGION: ${{ inputs.aws-region }}
+        BASTION_ID_PARAM: ${{ steps.names.outputs.bastion-param }}
+        DB_ENDPOINT_PARAM: ${{ steps.names.outputs.endpoint-param }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/bastion-ready.sh"

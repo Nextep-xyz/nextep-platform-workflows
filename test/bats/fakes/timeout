@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Fake timeout: FAKE_TIMEOUT_RC set => pretends the command timed out; otherwise runs it.
+if [[ -n ${FAKE_TIMEOUT_RC:-} ]]; then exit "$FAKE_TIMEOUT_RC"; fi
+shift
+exec "$@"

@@ -1,0 +1,45 @@
+name: setup-project
+description: Package manager + Node setup, dependency cache and immutable install.
+inputs:
+  package-manager:
+    description: npm or pnpm.
+    required: false
+    default: pnpm
+  pnpm-version:
+    description: pnpm version. Empty means the `packageManager` field of package.json.
+    required: false
+    default: ""
+  node-version:
+    description: Node version (ignored when node-version-file is set).
+    required: false
+    default: "22"
+  node-version-file:
+    description: File with the Node version (for example .nvmrc).
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    # parity: P-CI-01, P-EN-02
+    - name: Set up pnpm
+      if: inputs.package-manager == 'pnpm'
+      uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+      with:
+        version: ${{ inputs.pnpm-version }}
+        run_install: false
+    - name: Set up Node with dependency cache
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ inputs.node-version-file == '' && inputs.node-version || '' }}
+        node-version-file: ${{ inputs.node-version-file }}
+        cache: ${{ inputs.package-manager }}
+    - name: Immutable install
+      shell: bash
+      env:
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+      run: |
+        if [[ "$PACKAGE_MANAGER" == "pnpm" ]]; then
+          pnpm install --frozen-lockfile
+        else
+          npm ci
+        fi

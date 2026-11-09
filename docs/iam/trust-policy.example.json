@@ -1,0 +1,24 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "arn:aws:iam::<ACCOUNT>:oidc-provider/token.actions.githubusercontent.com"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+          "token.actions.githubusercontent.com:job_workflow_ref": [
+            "example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@refs/tags/v1",
+            "example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@refs/tags/v1"
+          ]
+        },
+        "StringLike": {
+          "token.actions.githubusercontent.com:sub": "repo:example-org/shop:ref:refs/heads/main"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,122 @@
+name: migrate
+description: >
+  Database stage over one SSM tunnel session: secret (masked first) -> tunnel -> wait for the port -> migration
+  commands -> teardown (always). DATABASE_URL only exists in the environment of the migration commands.
+inputs:
+  mode:
+    description: cicd (migrate only when pending) or environment-deploy (always migrate and verify).
+    required: true
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  bastion-id:
+    description: Output of the ssm-tunnel composite.
+    required: true
+  db-endpoint:
+    description: Output of the ssm-tunnel composite.
+    required: true
+  ca-bundle:
+    description: Output of the ssm-tunnel composite.
+    required: true
+  db-secret-id:
+    description: Template of the secret id (keys username and password).
+    required: true
+  db-name:
+    description: Database name.
+    required: true
+  db-schema:
+    description: Database schema.
+    required: false
+    default: ""
+  db-port:
+    description: Database port (also the local port of the tunnel).
+    required: false
+    default: "5432"
+  db-ssl-mode:
+    description: verify-full or require.
+    required: false
+    default: verify-full
+  db-url-template:
+    description: Template of DATABASE_URL.
+    required: true
+  migration-pre-command:
+    description: Hook that runs before the migration (generic; debt, see the spec).
+    required: false
+    default: ""
+  migration-command:
+    description: Applies the migrations.
+    required: true
+  migration-verify-command:
+    description: Exits non-zero when the database is not aligned.
+    required: true
+  post-migrate-command:
+    description: Idempotent seed.
+    required: false
+    default: ""
+  migration-timeout-minutes:
+    description: Timeout of each command.
+    required: false
+    default: "20"
+runs:
+  using: composite
+  steps:
+    # parity: P-CI-08, P-EN-09
+    - name: Resolve the secret id and the stage
+      id: names
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        TPL_REGION: ${{ inputs.aws-region }}
+        SECRET_TEMPLATE: ${{ inputs.db-secret-id }}
+      run: |
+        set -euo pipefail
+        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
+        {
+          echo "stage=$stage"
+          echo "secret-id=$("$SCRIPTS/resolve-template.sh" db-secret-id "$SECRET_TEMPLATE")"
+        } >>"$GITHUB_OUTPUT"
+    # parity: P-CI-09, P-CI-14, P-EN-10, P-EN-11, P-EN-12, P-EN-13
+    - name: Migrate over the SSM tunnel
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        MODE: ${{ inputs.mode }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        BASTION_ID: ${{ inputs.bastion-id }}
+        DB_ENDPOINT: ${{ inputs.db-endpoint }}
+        CA_BUNDLE: ${{ inputs.ca-bundle }}
+        DB_SECRET_ID: ${{ steps.names.outputs.secret-id }}
+        DB_NAME: ${{ inputs.db-name }}
+        DB_SCHEMA: ${{ inputs.db-schema }}
+        DB_PORT: ${{ inputs.db-port }}
+        DB_SSL_MODE: ${{ inputs.db-ssl-mode }}
+        DB_URL_TEMPLATE: ${{ inputs.db-url-template }}
+        MIGRATION_PRE_COMMAND: ${{ inputs.migration-pre-command }}
+        MIGRATION_COMMAND: ${{ inputs.migration-command }}
+        MIGRATION_VERIFY_COMMAND: ${{ inputs.migration-verify-command }}
+        POST_MIGRATE_COMMAND: ${{ inputs.post-migrate-command }}
+        MIGRATION_TIMEOUT_MINUTES: ${{ inputs.migration-timeout-minutes }}
+        # variables the workflow exports to the project's commands (contract, fixed by a test)
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.names.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.names.outputs.stage }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-migration.sh"
+    - name: Tear down the tunnel
+      if: always()
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+      run: |
+        "$SCRIPTS/ssm-tunnel-down.sh"

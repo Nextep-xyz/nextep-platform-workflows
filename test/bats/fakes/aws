@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Fake `aws` CLI for the bats tests. Behaviour is driven by FAKE_* variables; every call is appended to $FAKE_LOG.
+echo "aws $*" >>"${FAKE_LOG:-/dev/null}"
+arg_after() { # arg_after <flag>
+  local i args=("${ALL_ARGS[@]}")
+  for ((i = 0; i < ${#args[@]}; i++)); do
+    if [[ ${args[i]} == "$1" ]]; then printf '%s' "${args[i + 1]}"; return; fi
+  done
+}
+ALL_ARGS=("$@")
+case "$1 $2" in
+  "ssm get-parameter")
+    case "$(arg_after --name)" in
+      *bastion*) printf '%s\n' "${FAKE_BASTION_ID-i-0abc123}" ;;
+      *endpoint*) printf '%s\n' "${FAKE_DB_ENDPOINT-db.example.internal}" ;;
+      *) echo "ParameterNotFound" >&2; exit 254 ;;
+    esac
+    ;;
+  "ssm describe-instance-information") printf '%s\n' "${FAKE_PING-Online}" ;;
+  "secretsmanager get-secret-value")
+    if [[ -n ${FAKE_SECRET_FAIL:-} ]]; then echo "AccessDeniedException" >&2; exit 254; fi
+    printf '%s\n' "${FAKE_SECRET_JSON-}"
+    ;;
+  "ssm start-session")
+    case "${FAKE_TUNNEL:-listen}" in
+      die) echo "TargetNotConnected: the tunnel could not be established" >&2; exit 1 ;;
+      listen)
+        exec "${FAKE_PYTHON:-python3}" -c 'import socket,sys,time
+s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(5); time.sleep(120)' "${FAKE_PORT:?}"
+        ;;
+    esac
+    ;;
+  *) echo "fake aws: unhandled call: $*" >&2; exit 2 ;;
+esac
