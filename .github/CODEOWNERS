@@ -1,0 +1,7 @@
+# Replace the placeholder team with the real maintainers team when the repository is configured.
+# Review is mandatory on workflows, composites, scripts, contracts and gates.
+*                       @example-org/platform-maintainers
+/.github/               @example-org/platform-maintainers
+/contracts/             @example-org/platform-maintainers
+/scripts/               @example-org/platform-maintainers
+/test/gates/            @example-org/platform-maintainers

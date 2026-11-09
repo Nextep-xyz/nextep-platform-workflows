@@ -1,0 +1,11 @@
+# Hosts allowed in URLs of this public repository (regex, one per line, matched against the whole host).
+github\.com
+.*\.github\.com
+.*\.githubusercontent\.com
+.*\.amazonaws\.com
+.*\.amazon\.com
+claude\.com
+mermaid\.js\.org
+localhost
+.*\.example\.[a-z]+
+example\.[a-z]+

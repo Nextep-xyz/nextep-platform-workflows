@@ -1,0 +1,9 @@
+# Gate exceptions. Each entry needs a matching '# gate-exception: <gate>' marker in the file itself.
+# A stale, expired or half-declared exception fails the build (see test/gates/lib/gates.bash).
+#
+# Entry format:
+#   - gate: G12
+#     file: contracts/example.contract.yml
+#     reason: why it is acceptable
+#     expires: 2026-12-31
+exceptions: []
