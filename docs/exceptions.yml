@@ -6,4 +6,8 @@
 #     file: contracts/example.contract.yml
 #     reason: why it is acceptable
 #     expires: 2026-12-31
-exceptions: []
+exceptions:
+  - gate: G12
+    file: contracts/lego-aws-environment-deploy.contract.yml
+    reason: The workflow of this contract is delivered in phase P1.4; until then the contract has nothing to be compared with. Remove together with the marker in the contract.
+    expires: 2026-12-31

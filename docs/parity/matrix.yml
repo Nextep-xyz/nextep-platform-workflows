@@ -1,0 +1,40 @@
+# Parity matrix: every step of the reference pipelines (generic ids, no names) and where it lands here.
+# Gate G18 checks it against the tree:
+#   - every `# parity: <id>` found in .github/ or scripts/ exists here;
+#   - every id has status `covered` (with the contract inputs that cover it) or `discarded` (with a reason);
+#   - every input named here exists in the contract of its flow;
+#   - once the workflow of a flow exists, each covered id of that flow is tagged somewhere in .github/ or scripts/.
+# The mapping id -> real file and line of the reference pipelines lives in the PRIVATE inventory, never here.
+#
+# Fields: id, flow (cicd | environment-deploy), summary, status (covered | discarded), inputs (list), reason.
+parity:
+  # ---- lego-aws-cicd ----------------------------------------------------------------------------------------------
+  - { id: P-CI-01, flow: cicd, summary: "Package manager + Node setup, cache, immutable install", status: covered, inputs: [package-manager, pnpm-version, node-version, node-version-file] }
+  - { id: P-CI-02, flow: cicd, summary: "Lint, typecheck, naming checks, tests", status: covered, inputs: [lint-command, test-command] }
+  - { id: P-CI-03, flow: cicd, summary: "Ephemeral Postgres for integration tests", status: covered, inputs: [test-postgres] }
+  - { id: P-CI-04, flow: cicd, summary: "Application build", status: covered, inputs: [build-command] }
+  - { id: P-CI-05, flow: cicd, summary: "Branch to environment (the caller decides; optional guard)", status: covered, inputs: [branch-map, environment] }
+  - { id: P-CI-06, flow: cicd, summary: "OIDC with a role per environment", status: covered, inputs: [role-arn, aws-region] }
+  - { id: P-CI-07, flow: cicd, summary: "Runtime configuration exists (SSM parameters and secrets)", status: covered, inputs: [required-ssm-params, required-secrets] }
+  - { id: P-CI-08, flow: cicd, summary: "Resolve bastion, endpoint and database credentials", status: covered, inputs: [bastion-id-ssm-param, db-endpoint-ssm-param, db-secret-id, db-url-template, db-name, db-schema, db-port] }
+  - { id: P-CI-09, flow: cicd, summary: "SSM tunnel, migration status, migrate only when pending", status: covered, inputs: [migration-command, migration-verify-command, migration-pre-command, migration-timeout-minutes, db-ssl-mode] }
+  - { id: P-CI-10, flow: cicd, summary: "Build and push the image, immutable tag = commit", status: covered, inputs: [ecr-repository, dockerfile, docker-context, docker-target] }
+  - { id: P-CI-11, flow: cicd, summary: "Lambda deploy: hotswap outside prod, full deploy in prod", status: covered, inputs: [deploy-command, hotswap-command, hotswap-environments] }
+  - { id: P-CI-12, flow: cicd, summary: "Runtime variables outside the IaC, for the deploy step only", status: covered, inputs: [deploy-env-ssm, deploy-env-secrets] }
+  - { id: P-CI-13, flow: cicd, summary: "ECS deploy: update-service --force-new-deployment", status: covered, inputs: [ecs-deploy-mode, ecs-cluster-ssm-param, ecs-service-ssm-param, compute] }
+  - { id: P-CI-14, flow: cicd, summary: "Idempotent seed", status: covered, inputs: [post-migrate-command] }
+  # ---- lego-aws-environment-deploy --------------------------------------------------------------------------------
+  - { id: P-EN-01, flow: environment-deploy, summary: "Guard: only authorised branches map to an environment", status: covered, inputs: [branch-map, environment] }
+  - { id: P-EN-02, flow: environment-deploy, summary: "Setup + immutable install", status: covered, inputs: [package-manager, pnpm-version, node-version, node-version-file] }
+  - { id: P-EN-03, flow: environment-deploy, summary: "Generate the ORM client / artifacts", status: covered, inputs: [prepare-command] }
+  - { id: P-EN-04, flow: environment-deploy, summary: "Guard: the generated artifact is not empty", status: covered, inputs: [prepare-check-command] }
+  - { id: P-EN-05, flow: environment-deploy, summary: "Purge the synth cache to force a clean bundle", status: covered, inputs: [clean-command] }
+  - { id: P-EN-06, flow: environment-deploy, summary: "Deploy the image repository (previous stack)", status: covered, inputs: [infra-bootstrap-command] }
+  - { id: P-EN-07, flow: environment-deploy, summary: "Build and push the image, or roll back by verifying it exists", status: covered, inputs: [image-tag, ecr-repository, dockerfile, docker-context, docker-target] }
+  - { id: P-EN-08, flow: environment-deploy, summary: "Deploy the rest of the infra; pin the tag only in stg/prod", status: covered, inputs: [infra-deploy-command, pin-image-tag-environments] }
+  - { id: P-EN-09, flow: environment-deploy, summary: "Resolve bastion/endpoint/credentials and open the tunnel", status: covered, inputs: [bastion-id-ssm-param, db-endpoint-ssm-param, db-secret-id, db-url-template, db-name, db-schema, db-port, db-ssl-mode] }
+  - { id: P-EN-10, flow: environment-deploy, summary: "Resolve a known failed migration (generic hook; debt)", status: covered, inputs: [migration-pre-command] }
+  - { id: P-EN-11, flow: environment-deploy, summary: "Apply migrations", status: covered, inputs: [migration-command, migration-timeout-minutes] }
+  - { id: P-EN-12, flow: environment-deploy, summary: "Verify the database is aligned; otherwise fail red", status: covered, inputs: [migration-verify-command] }
+  - { id: P-EN-13, flow: environment-deploy, summary: "Idempotent seed", status: covered, inputs: [post-migrate-command] }
+  - { id: P-EN-14, flow: environment-deploy, summary: "Per-environment concurrency, never cancelling", status: covered, inputs: [project, environment] }

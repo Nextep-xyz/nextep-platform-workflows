@@ -26,7 +26,7 @@ jobs:
       - name: actionlint
         run: actionlint -color
       - name: shellcheck
-        run: git ls-files -z '*.sh' | xargs -0 -r shellcheck -x
+        run: git ls-files -z '*.sh' | xargs -0 -r shellcheck -x -P SCRIPTDIR
 
   tests:
     name: tests

@@ -102,6 +102,9 @@ gate_discover_lego_workflows() {
   gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-*.yml'
 }
 
+# JSON view of a YAML file under GATES_ROOT.
+gate_json() { yq -o=json '.' "$GATES_ROOT/$1"; }
+
 # Normalised JSON of the workflow_call inputs: {name: {type, required, default}}
 gate_workflow_inputs_json() {
   yq -o=json '.on.workflow_call.inputs // {}' "$GATES_ROOT/$1" |

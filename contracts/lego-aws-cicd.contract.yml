@@ -1,0 +1,146 @@
+# Contract of .github/workflows/lego-aws-cicd.yml — machine-readable source of truth (gate G12).
+# Changing a job name or an input name is a MAJOR version: it breaks required checks and callers.
+workflow: lego-aws-cicd
+inputs:
+  project:
+    type: string
+    required: true
+  environment:
+    type: string
+    required: true
+  compute:
+    type: string
+    required: true
+  aws-region:
+    type: string
+    default: "us-east-2"
+  role-arn:
+    type: string
+    required: true
+  package-manager:
+    type: string
+    default: "pnpm"
+  pnpm-version:
+    type: string
+    default: ""
+  node-version:
+    type: string
+    default: "22"
+  node-version-file:
+    type: string
+    default: ""
+  branch-map:
+    type: string
+    default: ""
+  bastion-id-ssm-param:
+    type: string
+    default: ""
+  db-endpoint-ssm-param:
+    type: string
+    default: ""
+  db-secret-id:
+    type: string
+    default: ""
+  db-name:
+    type: string
+    default: ""
+  db-schema:
+    type: string
+    default: ""
+  db-port:
+    type: number
+    default: 5432
+  db-ssl-mode:
+    type: string
+    default: "verify-full"
+  db-url-template:
+    type: string
+    default: "postgresql://{user}:{password}@{host}:{port}/{db}?schema={schema}&sslmode={sslmode}"
+  migration-pre-command:
+    type: string
+    default: ""
+  migration-command:
+    type: string
+    default: "make migrate"
+  migration-verify-command:
+    type: string
+    default: "make migrate-status"
+  post-migrate-command:
+    type: string
+    default: ""
+  migration-timeout-minutes:
+    type: number
+    default: 20
+  run-deploy:
+    type: boolean
+    default: true
+  lint-command:
+    type: string
+    default: "make lint"
+  test-command:
+    type: string
+    default: "make test-ci"
+  test-postgres:
+    type: boolean
+    default: false
+  build-command:
+    type: string
+    default: ""
+  required-ssm-params:
+    type: string
+    default: "[]"
+  required-secrets:
+    type: string
+    default: "[]"
+  deploy-command:
+    type: string
+    default: ""
+  hotswap-command:
+    type: string
+    default: ""
+  hotswap-environments:
+    type: string
+    default: "dev"
+  deploy-env-ssm:
+    type: string
+    default: "{}"
+  deploy-env-secrets:
+    type: string
+    default: "{}"
+  ecs-cluster-ssm-param:
+    type: string
+    default: ""
+  ecs-service-ssm-param:
+    type: string
+    default: ""
+  ecs-deploy-mode:
+    type: string
+    default: "force-new-deployment"
+  ecr-repository:
+    type: string
+    default: ""
+  dockerfile:
+    type: string
+    default: "Dockerfile"
+  docker-context:
+    type: string
+    default: "."
+  docker-target:
+    type: string
+    default: ""
+  # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
+  # telemetry-url: { type: string, default: "" }
+  # DORA-PLACEHOLDER:END
+secrets: {}
+# DORA-PLACEHOLDER:BEGIN
+# secrets:
+#   TELEMETRY_TOKEN: { required: false }
+# DORA-PLACEHOLDER:END
+outputs: {}
+jobs:
+  - quality-and-security-gate
+  - database-migration
+  - deploy
+  # DORA-PLACEHOLDER:BEGIN
+  # - telemetry-phone-home
+  # DORA-PLACEHOLDER:END
