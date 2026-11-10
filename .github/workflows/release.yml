@@ -45,6 +45,8 @@ jobs:
       - name: Run the suite on the commit to release
         env:
           REQUIRE_TOOLS: "1"
+          # Organization secret with internal names (G13). Missing => the public-names gate fails the release.
+          INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}
         run: bats --recursive test/bats test/gates
       - name: Build the release tree
         env:

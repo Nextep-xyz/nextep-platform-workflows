@@ -834,8 +834,7 @@ ubicación del colector (es un input), orden de implementación de `deploy-mode`
 |---|---|
 | P1 (`lego-aws-cicd`, `lego-aws-environment-deploy`) | **Hecha** (local). Pendiente: spikes S1/S3/S4, runs en `dev`, rulesets, release `v1` |
 | P2 (lambdalith + DSQL, H1–H4) | **Hecha** (local, rama `feat/p2-workflows-lambdalith-dsql`, sin push) |
-| Adopción hub-core | Rama `ci/adoptar-plantilla-platform-workflows` en `nextep-hub-core` (sin push); requiere `v1` y variables `AWS_ROLE_ARN_*` |
-| Adopción Quoota | **Sin empezar** (su spec no está en disco) |
+| Adopción por los consumidores | Se rastrea en los repositorios consumidores, no aquí; requiere `v1` y las variables `AWS_ROLE_ARN_*` del caller |
 | F0 – F3 (diseño original) | Superadas por la enmienda §0; Azure sigue en backlog |
 
 **Hecho (2026-10-29):** `README.md` (la idea), `SPEC.md` (este documento) y `AGENTS.md` redactados a partir de la
