@@ -1,7 +1,7 @@
 # SPEC — nextep-platform-workflows
 
 > Hoja de ruta de ingeniería del motor de CI/CD. Contexto e idea: [`README.md`](./README.md).
-> **Estado: BORRADOR — pendiente de aprobación. No se escribe ningún workflow hasta aprobarlo.**
+> **Estado: P1 y P2 (H1–H4) implementadas y verificadas solo en local; la enmienda de §0 manda. F0–F3 de §11 son el diseño original, no el estado.** Sin `v1`, sin spikes ni runs en `dev`.
 >
 > **Cómo leerlo:** §3–§9 son el **diseño objetivo** (contratos y mecanismos). §11 es lo que se construye
 > **ahora**: un proyecto piloto, registrando patrones existentes antes de implementar, fase por fase. Lo que no
@@ -832,7 +832,11 @@ ubicación del colector (es un input), orden de implementación de `deploy-mode`
 
 | Fase | Estado |
 |---|---|
-| F0 – F3 | **Pendiente.** Spec en borrador, sin aprobar |
+| P1 (`lego-aws-cicd`, `lego-aws-environment-deploy`) | **Hecha** (local). Pendiente: spikes S1/S3/S4, runs en `dev`, rulesets, release `v1` |
+| P2 (lambdalith + DSQL, H1–H4) | **Hecha** (local, rama `feat/p2-workflows-lambdalith-dsql`, sin push) |
+| Adopción hub-core | Rama `ci/adoptar-plantilla-platform-workflows` en `nextep-hub-core` (sin push); requiere `v1` y variables `AWS_ROLE_ARN_*` |
+| Adopción Quoota | **Sin empezar** (su spec no está en disco) |
+| F0 – F3 (diseño original) | Superadas por la enmienda §0; Azure sigue en backlog |
 
 **Hecho (2026-10-29):** `README.md` (la idea), `SPEC.md` (este documento) y `AGENTS.md` redactados a partir de la
 lectura de pipelines internos preexistentes (inventario en un repositorio privado). **No hay workflows ni scripts implementados.**
