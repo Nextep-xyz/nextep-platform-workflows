@@ -11,6 +11,7 @@ setup() {
   export HOSTS_FILE="$BATS_TEST_TMPDIR/hosts"
   printf '127.0.0.1 localhost\n' >"$HOSTS_FILE"
   export SUDO_CMD=""
+  unset GITHUB_OUTPUT # the scripts write there when set (always in CI); the tests read stdout
   export AWS_REGION=us-east-2
   export FAKE_PORT=$((20000 + RANDOM % 20000))
   FAKE_PYTHON="$(python3 -c 'print(1)' >/dev/null 2>&1 && command -v python3 || command -v python)"
