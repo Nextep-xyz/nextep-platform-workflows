@@ -2,7 +2,7 @@
 # Two bugs that every unit test missed because the tests ran WITHOUT $GITHUB_OUTPUT (Actions always sets it):
 #   1. `stage="$(derive-context.sh | sed ...)"` captures nothing inside Actions (the script writes to $GITHUB_OUTPUT),
 #      so the stage, and every template with {stage}, came out empty.
-#   2. `echo "name=$(resolve-template.sh ...)" >>"$GITHUB_OUTPUT"` swallows the failure of the substitution (set -e looks
+#   2. `echo "name=$(resolve-template.sh ...)" >>"$GITHUB_OUTPUT"` hides the failure of the substitution (set -e looks
 #      at the exit status of echo), so the step stays green with an empty output and the next step fails with a
 #      misleading message.
 
