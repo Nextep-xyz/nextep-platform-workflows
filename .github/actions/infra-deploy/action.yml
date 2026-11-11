@@ -76,11 +76,12 @@ runs:
         REPOSITORY_TEMPLATE: ${{ inputs.ecr-repository }}
       run: |
         set -euo pipefail
-        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        stage="$("$SCRIPTS/derive-context.sh" --print)"
         echo "stage=$stage" >>"$GITHUB_OUTPUT"
         if [[ -n "$REPOSITORY_TEMPLATE" ]]; then
           export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
-          echo "repository=$("$SCRIPTS/resolve-template.sh" ecr-repository "$REPOSITORY_TEMPLATE")" >>"$GITHUB_OUTPUT"
+          repository="$("$SCRIPTS/resolve-template.sh" ecr-repository "$REPOSITORY_TEMPLATE")"
+          echo "repository=$repository" >>"$GITHUB_OUTPUT"
         fi
     # parity: P-EN-03
     - name: Prepare (generate the ORM client / artifacts)
