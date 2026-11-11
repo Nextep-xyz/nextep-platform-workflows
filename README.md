@@ -69,6 +69,11 @@ Los dos de AWS son por **flujo**, no por cómputo (`SPEC.md §0`). Secuencia del
 **`quality-and-security-gate` → `database-migration` → `deploy`**. El job `telemetry-phone-home` está escrito pero
 **comentado** hasta que exista el colector (sección 4).
 
+**Minutos contados.** Cada job es un runner que repite checkout, toolchain e install. En `lego-aws-environment-deploy`,
+con `migrate-before-deploy: true` la migración y el `post-deploy-command` corren como **pasos** de `infra-deploy`
+(mismo rol, mismo install): el run son dos runners, `quality-and-security-gate` → `infra-deploy`. Solo el orden
+infra → migración mantiene jobs aparte (`database-migration`, `post-deploy`), porque la migración debe esperar a la infra.
+
 Además cada ejecución **le cuenta lo que pasó** a quien la lee: un resumen en la pestaña del run y un comentario
 en el PR cuando falla un gate o termina un deploy, con enlace directo al log.
 

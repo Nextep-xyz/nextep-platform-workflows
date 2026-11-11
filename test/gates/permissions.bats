@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # G2 — least privilege: no workflow-level permissions, every job declares its own,
-# `id-token: write` only in the jobs that assume the role (migration x2, deploy, infra-deploy, post-deploy); no `contents: write`.
+# `id-token: write` only in the jobs that assume the role (migration, deploy, infra-deploy, post-deploy); no `contents: write`.
 
 load 'lib/gates'
 
@@ -18,7 +18,7 @@ load 'lib/gates'
     done < <(jq -r '.jobs | keys[]' <<<"$json")
     while IFS= read -r job; do
       case "$job" in
-        database-migration | database-migration-before-deploy | deploy | infra-deploy | post-deploy) ;;
+        database-migration | deploy | infra-deploy | post-deploy) ;;
         *) gate_violation "$wf" "job '$job' has 'id-token: write'; only the migration, deploy, infra-deploy and post-deploy jobs may" ;;
       esac
     done < <(jq -r '.jobs | to_entries[] | select(.value.permissions["id-token"]? == "write") | .key' <<<"$json")

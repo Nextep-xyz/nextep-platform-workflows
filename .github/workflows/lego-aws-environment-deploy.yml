@@ -3,6 +3,10 @@
 # Contract: contracts/lego-aws-environment-deploy.contract.yml (gate G12). The caller grants:
 # permissions: { id-token: write, contents: read, pull-requests: write }.
 # Rollback: pass image-tag (compute ecs). Nothing is built and the database is NOT migrated.
+# Minutes matter: every job is a runner that repeats checkout, toolchain and install. With migrate-before-deploy the
+# migration and the post-deploy command run as STEPS of infra-deploy (same role, same checkout, same install), so the
+# run is two runners (gate, infra-deploy). The separate database-migration and post-deploy jobs exist only for the
+# order infrastructure -> migration -> post-deploy, where the migration must wait for the infrastructure.
 name: lego-aws-environment-deploy
 
 on:
@@ -223,79 +227,9 @@ jobs:
           lint-command: ${{ inputs.lint-command }}
           test-command: ${{ inputs.test-command }}
 
-  # Runs BEFORE infra-deploy only when migrate-before-deploy is true (SPEC P2 D3/E9). The steps repeat those of
-  # database-migration on purpose: `needs` cannot be conditional and a composite cannot call another composite (G11).
-  database-migration-before-deploy:
-    name: database-migration-before-deploy
-    needs: [quality-and-security-gate]
-    # parity: H-15
-    if: ${{ inputs.image-tag == '' && inputs.migrate-before-deploy }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    concurrency:
-      group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
-      cancel-in-progress: false
-    steps:
-      - name: Check out the caller repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
-        with:
-          package-manager: ${{ inputs.package-manager }}
-          pnpm-version: ${{ inputs.pnpm-version }}
-          node-version: ${{ inputs.node-version }}
-          node-version-file: ${{ inputs.node-version-file }}
-          install-dirs: ${{ inputs.install-dirs }}
-      - name: Assume the environment role
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
-        with:
-          role-arn: ${{ inputs.role-arn }}
-          aws-region: ${{ inputs.aws-region }}
-      - name: Prepare the SSM tunnel
-        id: tunnel
-        if: ${{ inputs.db-access == 'ssm-tunnel' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
-        with:
-          project: ${{ inputs.project }}
-          environment: ${{ inputs.environment }}
-          aws-region: ${{ inputs.aws-region }}
-          bastion-id-ssm-param: ${{ inputs.bastion-id-ssm-param }}
-          db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
-      - name: Migrate, verify and seed
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
-        with:
-          mode: environment-deploy
-          project: ${{ inputs.project }}
-          environment: ${{ inputs.environment }}
-          aws-region: ${{ inputs.aws-region }}
-          db-access: ${{ inputs.db-access }}
-          db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
-          bastion-id: ${{ steps.tunnel.outputs.bastion-id }}
-          db-endpoint: ${{ steps.tunnel.outputs.db-endpoint }}
-          ca-bundle: ${{ steps.tunnel.outputs.ca-bundle }}
-          db-secret-id: ${{ inputs.db-secret-id }}
-          db-name: ${{ inputs.db-name }}
-          db-schema: ${{ inputs.db-schema }}
-          db-port: ${{ inputs.db-port }}
-          db-ssl-mode: ${{ inputs.db-ssl-mode }}
-          db-url-template: ${{ inputs.db-url-template }}
-          migration-pre-command: ${{ inputs.migration-pre-command }}
-          migration-command: ${{ inputs.migration-command }}
-          migration-verify-command: ${{ inputs.migration-verify-command }}
-          post-migrate-command: ${{ inputs.post-migrate-command }}
-          migration-timeout-minutes: ${{ inputs.migration-timeout-minutes }}
-
   infra-deploy:
     name: infra-deploy
-    needs: [quality-and-security-gate, database-migration-before-deploy]
-    if: >-
-      ${{ always()
-      && needs.quality-and-security-gate.result == 'success'
-      && (needs.database-migration-before-deploy.result == 'success' || needs.database-migration-before-deploy.result == 'skipped') }}
+    needs: [quality-and-security-gate]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -325,6 +259,44 @@ jobs:
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
+      # migrate-before-deploy (expand/contract): the migration is a step here, before the infrastructure, not a job of its
+      # own. A failing step stops the job, so a failed migration still means no deploy. Same lock, same role.
+      # parity: H-15
+      - name: Prepare the SSM tunnel (migration before the deploy)
+        id: tunnel
+        if: ${{ inputs.image-tag == '' && inputs.migrate-before-deploy && inputs.db-access == 'ssm-tunnel' }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          bastion-id-ssm-param: ${{ inputs.bastion-id-ssm-param }}
+          db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
+      # parity: H-15
+      - name: Migrate, verify and seed (before the deploy)
+        if: ${{ inputs.image-tag == '' && inputs.migrate-before-deploy }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
+        with:
+          mode: environment-deploy
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          db-access: ${{ inputs.db-access }}
+          db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
+          bastion-id: ${{ steps.tunnel.outputs.bastion-id }}
+          db-endpoint: ${{ steps.tunnel.outputs.db-endpoint }}
+          ca-bundle: ${{ steps.tunnel.outputs.ca-bundle }}
+          db-secret-id: ${{ inputs.db-secret-id }}
+          db-name: ${{ inputs.db-name }}
+          db-schema: ${{ inputs.db-schema }}
+          db-port: ${{ inputs.db-port }}
+          db-ssl-mode: ${{ inputs.db-ssl-mode }}
+          db-url-template: ${{ inputs.db-url-template }}
+          migration-pre-command: ${{ inputs.migration-pre-command }}
+          migration-command: ${{ inputs.migration-command }}
+          migration-verify-command: ${{ inputs.migration-verify-command }}
+          post-migrate-command: ${{ inputs.post-migrate-command }}
+          migration-timeout-minutes: ${{ inputs.migration-timeout-minutes }}
       # parity: P-EN-03, P-EN-04, P-EN-05, P-EN-06, P-EN-07, P-EN-08, H-08, H-13
       - name: Deploy the infrastructure
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/infra-deploy@main
@@ -345,6 +317,18 @@ jobs:
           dockerfile: ${{ inputs.dockerfile }}
           docker-context: ${{ inputs.docker-context }}
           docker-target: ${{ inputs.docker-target }}
+      # With migrate-before-deploy the migration already ran above, so the verification needs no runner of its own.
+      # Without it, the post-deploy JOB below runs after the migration.
+      # parity: H-09, H-12
+      - name: Post-deploy command (migration already applied)
+        if: ${{ inputs.migrate-before-deploy && inputs.post-deploy-command != '' }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          aws-account-id: ${{ steps.oidc.outputs.account-id }}
+          post-deploy-command: ${{ inputs.post-deploy-command }}
 
   database-migration:
     name: database-migration
@@ -414,12 +398,13 @@ jobs:
 
   post-deploy:
     name: post-deploy
-    needs: [quality-and-security-gate, infra-deploy, database-migration-before-deploy, database-migration]
+    needs: [quality-and-security-gate, infra-deploy, database-migration]
+    # Only for the order infrastructure -> migration (migrate-before-deploy false): it must wait for the migration.
+    # With migrate-before-deploy true the same command already ran as the last step of infra-deploy.
     if: >-
-      ${{ always() && inputs.post-deploy-command != ''
+      ${{ always() && inputs.post-deploy-command != '' && !inputs.migrate-before-deploy
       && needs.quality-and-security-gate.result == 'success'
       && needs.infra-deploy.result == 'success'
-      && (needs.database-migration-before-deploy.result == 'success' || needs.database-migration-before-deploy.result == 'skipped')
       && (needs.database-migration.result == 'success' || needs.database-migration.result == 'skipped') }}
     runs-on: ubuntu-latest
     permissions:

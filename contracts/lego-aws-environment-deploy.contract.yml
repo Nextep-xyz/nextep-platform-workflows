@@ -137,7 +137,6 @@ secrets: {}
 outputs: {}
 jobs:
   - quality-and-security-gate
-  - database-migration-before-deploy
   - infra-deploy
   - database-migration
   - post-deploy
