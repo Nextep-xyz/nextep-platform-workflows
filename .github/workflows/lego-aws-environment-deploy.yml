@@ -200,14 +200,14 @@ jobs:
           persist-credentials: false
       # parity: P-EN-01, H-01
       - name: Validate the inputs, the event, the branch guard and the OIDC-stack guard
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           flow: environment-deploy
           inputs-json: ${{ toJSON(inputs) }}
       # parity: H-02
       - name: Set up the project
         if: ${{ inputs.lint-command != '' || inputs.test-command != '' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -217,7 +217,7 @@ jobs:
       # parity: H-03, H-04, H-05
       - name: Quality gate
         if: ${{ inputs.lint-command != '' || inputs.test-command != '' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -245,7 +245,7 @@ jobs:
           persist-credentials: false
       # parity: P-EN-02
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -255,7 +255,7 @@ jobs:
       # parity: H-06, H-07
       - name: Assume the environment role
         id: oidc
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
@@ -265,7 +265,7 @@ jobs:
       - name: Prepare the SSM tunnel (migration before the deploy)
         id: tunnel
         if: ${{ inputs.image-tag == '' && inputs.migrate-before-deploy && inputs.db-access == 'ssm-tunnel' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -275,7 +275,7 @@ jobs:
       # parity: H-15
       - name: Migrate, verify and seed (before the deploy)
         if: ${{ inputs.image-tag == '' && inputs.migrate-before-deploy }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           mode: environment-deploy
           project: ${{ inputs.project }}
@@ -299,7 +299,7 @@ jobs:
           migration-timeout-minutes: ${{ inputs.migration-timeout-minutes }}
       # parity: P-EN-03, P-EN-04, P-EN-05, P-EN-06, P-EN-07, P-EN-08, H-08, H-13
       - name: Deploy the infrastructure
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/infra-deploy@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/infra-deploy@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -322,7 +322,7 @@ jobs:
       # parity: H-09, H-12
       - name: Post-deploy command (migration already applied)
         if: ${{ inputs.migrate-before-deploy && inputs.post-deploy-command != '' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -348,7 +348,7 @@ jobs:
           persist-credentials: false
       # parity: P-EN-02
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -356,7 +356,7 @@ jobs:
           node-version-file: ${{ inputs.node-version-file }}
           install-dirs: ${{ inputs.install-dirs }}
       - name: Assume the environment role
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
@@ -364,7 +364,7 @@ jobs:
       - name: Prepare the SSM tunnel
         id: tunnel
         if: ${{ inputs.db-access == 'ssm-tunnel' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -373,7 +373,7 @@ jobs:
           db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
       # parity: P-EN-10, P-EN-11, P-EN-12, P-EN-13
       - name: Migrate, verify and seed
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           mode: environment-deploy
           project: ${{ inputs.project }}
@@ -419,7 +419,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -428,13 +428,13 @@ jobs:
           install-dirs: ${{ inputs.install-dirs }}
       - name: Assume the environment role
         id: oidc
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
       # parity: H-09, H-12
       - name: Post-deploy command
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@0303efd60823445ab3889a78f2223aa40a0a8905
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
