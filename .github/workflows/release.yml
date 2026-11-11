@@ -29,6 +29,8 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+          # GITHUB_TOKEN cannot push commits that touch .github/workflows (the release rewrites them): a token with the `workflows` permission is required.
+          token: ${{ secrets.RELEASE_TOKEN }}
       - name: Guard the version and the branch
         env:
           VERSION: ${{ inputs.version }}
