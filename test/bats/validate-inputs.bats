@@ -359,3 +359,23 @@ run_validate() { run "$SCRIPTS/validate-inputs.sh" "$1"; }
   [ "$status" -eq 1 ]
   [[ "$output" == *"input 'migrate-before-deploy' must be true or false"* ]]
 }
+
+@test "commands: {stage}, {env}, {project} and {region} are rejected (not expanded there) and name the variable to use" {
+  hub_like_env_deploy
+  export INPUT_LINT_COMMAND='pnpm lint --project {project}'
+  export INPUT_INFRA_DEPLOY_COMMAND='cdk deploy "ShopApi-{stage}" -c e={env} -c r={region}'
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'lint-command' uses '{project}'"*'use $PROJECT'* ]]
+  [[ "$output" == *"input 'infra-deploy-command' uses '{stage}'"*'use $APP_STAGE'* ]]
+  [[ "$output" == *"input 'infra-deploy-command' uses '{env}'"*'use $APP_ENV'* ]]
+  [[ "$output" == *"input 'infra-deploy-command' uses '{region}'"*'use $AWS_REGION'* ]]
+}
+
+@test "commands: shell braces and \${VAR} expansions are not mistaken for placeholders" {
+  hub_like_env_deploy
+  export INPUT_INFRA_DEPLOY_COMMAND='{ [ -z "$X" ] && echo none || cdk deploy "ShopApi-${APP_STAGE}" "Shop*-$APP_STAGE"; }'
+  export INPUT_TEST_COMMAND='node -e "console.log({stage: 1})"'
+  run_validate environment-deploy
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; } # `{stage: 1}` is not the placeholder `{stage}`: only the exact token counts
+}

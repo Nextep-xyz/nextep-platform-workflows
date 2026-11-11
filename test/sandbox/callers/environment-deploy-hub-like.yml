@@ -32,6 +32,6 @@ jobs:
       migration-verify-command: node app/scripts/ci-db-status.mjs
       # every stack of the stage except the OIDC and the env-manager ones (filter on 'oidc', never name the OIDC stack)
       infra-deploy-command: >-
-        cd infra && pnpm exec cdk ls "Shop*-{stage}" | grep -viE "oidc|envmanager" |
+        cd infra && pnpm exec cdk ls "Shop*-$APP_STAGE" | grep -viE "oidc|envmanager" |
         xargs pnpm exec cdk deploy --exclusively --require-approval never
       post-deploy-command: node app/scripts/verify-deploy.mjs

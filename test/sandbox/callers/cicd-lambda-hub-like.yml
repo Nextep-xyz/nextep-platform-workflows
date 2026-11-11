@@ -22,7 +22,7 @@ jobs:
       db-endpoint-ssm-param: /shop/{stage}/database-endpoint-host
       migration-command: node app/scripts/ci-db-migrate.mjs
       migration-verify-command: node app/scripts/ci-db-status.mjs
-      deploy-command: pnpm --dir infra exec cdk deploy --exclusively ShopApi-{stage} --require-approval never
-      hotswap-command: pnpm --dir infra exec cdk deploy --exclusively ShopApi-{stage} --hotswap --require-approval never
+      deploy-command: pnpm --dir infra exec cdk deploy --exclusively ShopApi-$APP_STAGE --require-approval never
+      hotswap-command: pnpm --dir infra exec cdk deploy --exclusively ShopApi-$APP_STAGE --hotswap --require-approval never
       hotswap-environments: dev,stg
       post-deploy-command: node app/scripts/verify-deploy.mjs

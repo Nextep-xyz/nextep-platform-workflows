@@ -49,7 +49,7 @@ hub_like_env() {
   common_env
   export INPUT_COMPUTE=lambda INPUT_DB_ACCESS=iam-direct INPUT_INSTALL_DIRS=app,infra INPUT_TEST_DATABASE_IMAGE=postgres:17
   export INPUT_DB_ENDPOINT_SSM_PARAM='/shop/{stage}/database-endpoint-host'
-  export INPUT_DEPLOY_COMMAND='pnpm --dir infra exec cdk deploy --exclusively ShopApi-{stage}'
+  export INPUT_DEPLOY_COMMAND='pnpm --dir infra exec cdk deploy --exclusively ShopApi-$APP_STAGE'
   export INPUT_HOTSWAP_ENVIRONMENTS='dev,stg' INPUT_POST_DEPLOY_COMMAND='node scripts/verify.mjs'
 }
 

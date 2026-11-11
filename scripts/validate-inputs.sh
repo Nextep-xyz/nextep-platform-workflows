@@ -164,6 +164,25 @@ while IFS= read -r frag; do
   done
 done <"$here/lib/oidc-stack-substrings"
 
+# --- commands: {placeholders} are NOT expanded there ------------------------------------------------------------------
+# Only the template inputs (*-ssm-param, db-secret-id, ecr-repository, ...) expand {stage}, {env}, {project}, {region}.
+# A command receives the same values as environment variables; a literal '{stage}' would reach the tool as is (a stack
+# called 'Api-{stage}' that does not exist), so it fails here, naming the input and the variable to use. Discovered by
+# name (every INPUT_*_COMMAND), not from a list: a command input added later is covered without touching this file.
+while IFS= read -r var; do
+  [[ -n $var ]] || continue
+  cmd_name="${var#INPUT_}"
+  cmd_name="${cmd_name%_COMMAND}"
+  cmd_name="$(tr '[:upper:]_' '[:lower:]-' <<<"$cmd_name")-command"
+  for pair in stage:APP_STAGE env:APP_ENV project:PROJECT region:AWS_REGION; do
+    placeholder="${pair%%:*}"
+    envvar="${pair#*:}"
+    if [[ ${!var} =~ (^|[^$])\{${placeholder}\} ]]; then
+      err "input '$cmd_name' uses '{$placeholder}', which is not expanded in commands (only in template inputs): use \$$envvar"
+    fi
+  done
+done < <(compgen -A variable INPUT_ | grep '_COMMAND$' || true)
+
 # --- JSON-valued inputs ----------------------------------------------------------------------------------------------
 json_input() { # json_input <name> <jq type test> <expected>
   local v
