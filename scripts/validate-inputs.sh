@@ -37,7 +37,7 @@ run_deploy="$(val run-deploy)"
 # --- enums and formats ------------------------------------------------------------------------------------------
 [[ $project =~ ^[a-z][a-z0-9-]{1,15}$ ]] || err "input 'project' must match ^[a-z][a-z0-9-]{1,15}\$ (got '$project')"
 case "$environment" in dev | stg | prod) ;; *) err "input 'environment' must be dev, stg or prod (got '$environment')" ;; esac
-case "$compute" in lambda | ecs) ;; *) err "input 'compute' must be lambda or ecs (got '$compute')" ;; esac
+case "$compute" in lambda | ecs | static) ;; *) err "input 'compute' must be lambda, ecs or static (got '$compute')" ;; esac
 case "$(val package-manager)" in npm | pnpm) ;; *) err "input 'package-manager' must be npm or pnpm (got '$(val package-manager)')" ;; esac
 case "$(val db-ssl-mode)" in verify-full | require) ;; *) err "input 'db-ssl-mode' must be verify-full or require, never anything weaker (got '$(val db-ssl-mode)')" ;; esac
 [[ "$(val db-port)" =~ ^[0-9]{1,5}$ ]] || err "input 'db-port' must be a port number (got '$(val db-port)')"
@@ -109,12 +109,12 @@ fi
 migrates=false
 if [[ $flow == environment-deploy ]]; then
   need infra-deploy-command "in environment-deploy"
-  [[ -z "$(val image-tag)" ]] && migrates=true
+  [[ -z "$(val image-tag)" && $compute != static ]] && migrates=true
   [[ $compute == ecs ]] && need ecr-repository "when compute=ecs"
 else
   if [[ $run_deploy == true ]]; then
-    if [[ $compute == lambda ]]; then
-      need deploy-command "when compute=lambda"
+    if [[ $compute == lambda || $compute == static ]]; then
+      need deploy-command "when compute=lambda or compute=static"
     elif [[ $compute == ecs ]]; then
       need ecs-cluster-ssm-param "when compute=ecs"
       need ecs-service-ssm-param "when compute=ecs"
@@ -134,6 +134,23 @@ if [[ $flow == environment-deploy && $migrates == true ]] || [[ $flow == cicd &&
     need db-secret-id "to migrate"
     need db-name "to migrate"
   fi
+fi
+
+# --- compute=static: no database stage ---------------------------------------------------------------------------------
+# A static site has no database. The migration inputs are rejected when set, so a caller never carries dead configuration
+# that looks like it does something. Inputs whose default is empty must stay empty; the two migration commands may only
+# keep their contract default (a caller that sets the same value as the default is indistinguishable and harmless).
+if [[ $compute == static ]]; then
+  for n in bastion-id-ssm-param db-endpoint-ssm-param db-secret-id db-name db-schema migration-pre-command post-migrate-command; do
+    [[ -z "$(val "$n")" ]] || err "input '$n' is not allowed with compute=static (a static site has no database stage)"
+  done
+  [[ "$db_access" != iam-direct ]] || err "input 'db-access' is not allowed with compute=static (a static site has no database stage)"
+  [[ "$(val migrate-before-deploy)" != true ]] || err "input 'migrate-before-deploy' is not allowed with compute=static (a static site has no database stage)"
+  for pair in 'migration-command:make migrate' 'migration-verify-command:make migrate-status'; do
+    n="${pair%%:*}"
+    d="${pair#*:}"
+    [[ -z "$(val "$n")" || "$(val "$n")" == "$d" ]] || err "input '$n' is not allowed with compute=static (a static site has no database stage)"
+  done
 fi
 
 # --- image-tag (rollback) --------------------------------------------------------------------------------------------

@@ -15,7 +15,7 @@ on:
         type: string
         required: true
       compute:
-        description: "lambda or ecs."
+        description: "lambda, ecs or static (a static site: build + deploy-command, no database stage)."
         type: string
         required: true
       aws-region:
@@ -127,7 +127,7 @@ on:
         type: string
         default: "[]"
       deploy-command:
-        description: "Full deploy command (compute lambda)."
+        description: "Full deploy command (compute lambda or static)."
         type: string
         default: ""
       hotswap-command:
@@ -333,7 +333,7 @@ jobs:
           persist-credentials: false
       # parity: P-CI-01
       - name: Set up the project
-        if: ${{ inputs.compute == 'lambda' }}
+        if: ${{ inputs.compute != 'ecs' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
         with:
           package-manager: ${{ inputs.package-manager }}
@@ -349,8 +349,8 @@ jobs:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
       # parity: P-CI-11, P-CI-12, H-08, H-13
-      - name: Deploy the lambdas
-        if: ${{ inputs.compute == 'lambda' }}
+      - name: Deploy (lambda or static)
+        if: ${{ inputs.compute != 'ecs' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-lambda@main
         with:
           project: ${{ inputs.project }}

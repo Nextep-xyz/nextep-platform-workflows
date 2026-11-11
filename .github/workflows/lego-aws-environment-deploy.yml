@@ -21,7 +21,7 @@ on:
         type: string
         required: true
       compute:
-        description: "lambda or ecs."
+        description: "lambda, ecs or static (a static site: no image, no database stage; the post-deploy command runs inside infra-deploy)."
         type: string
         required: true
       aws-region:
@@ -264,7 +264,7 @@ jobs:
       # parity: H-15
       - name: Prepare the SSM tunnel (migration before the deploy)
         id: tunnel
-        if: ${{ inputs.image-tag == '' && inputs.migrate-before-deploy && inputs.db-access == 'ssm-tunnel' }}
+        if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate-before-deploy && inputs.db-access == 'ssm-tunnel' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
         with:
           project: ${{ inputs.project }}
@@ -274,7 +274,7 @@ jobs:
           db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
       # parity: H-15
       - name: Migrate, verify and seed (before the deploy)
-        if: ${{ inputs.image-tag == '' && inputs.migrate-before-deploy }}
+        if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate-before-deploy }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
         with:
           mode: environment-deploy
@@ -320,8 +320,8 @@ jobs:
       # With migrate-before-deploy the migration already ran above, so the verification needs no runner of its own.
       # Without it, the post-deploy JOB below runs after the migration.
       # parity: H-09, H-12
-      - name: Post-deploy command (migration already applied)
-        if: ${{ inputs.migrate-before-deploy && inputs.post-deploy-command != '' }}
+      - name: Post-deploy command (inside infra-deploy; any migration already ran)
+        if: ${{ (inputs.migrate-before-deploy || inputs.compute == 'static') && inputs.post-deploy-command != '' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
         with:
           project: ${{ inputs.project }}
@@ -333,7 +333,7 @@ jobs:
   database-migration:
     name: database-migration
     needs: [quality-and-security-gate, infra-deploy]
-    if: ${{ inputs.image-tag == '' && !inputs.migrate-before-deploy }}
+    if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && !inputs.migrate-before-deploy }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -402,7 +402,7 @@ jobs:
     # Only for the order infrastructure -> migration (migrate-before-deploy false): it must wait for the migration.
     # With migrate-before-deploy true the same command already ran as the last step of infra-deploy.
     if: >-
-      ${{ always() && inputs.post-deploy-command != '' && !inputs.migrate-before-deploy
+      ${{ always() && inputs.post-deploy-command != '' && !inputs.migrate-before-deploy && inputs.compute != 'static'
       && needs.quality-and-security-gate.result == 'success'
       && needs.infra-deploy.result == 'success'
       && (needs.database-migration.result == 'success' || needs.database-migration.result == 'skipped') }}

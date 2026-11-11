@@ -1,0 +1,26 @@
+# Fictional caller (project "shop-web", compute static: a single-page app on object storage + CDN). Manual only.
+# No database stage: the migration inputs are rejected for compute static. The build runs as the prepare command and its
+# guard stops an empty output from reaching the deploy (a sync that prunes would empty the site).
+name: environment-deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment: { type: choice, options: [prod], required: true }
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  environment-deploy:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@main
+    with:
+      project: shop-web
+      environment: ${{ inputs.environment }}
+      compute: static
+      role-arn: ${{ vars.AWS_ROLE_ARN_PROD }}
+      branch-map: '{"main":"prod"}'
+      package-manager: pnpm
+      install-dirs: ".,infra"
+      lint-command: pnpm exec tsc --noEmit
+      test-command: pnpm test
+      prepare-command: pnpm build --mode "${APP_STAGE,,}"
+      prepare-check-command: test -s dist/index.html
+      infra-deploy-command: cd infra && pnpm exec cdk deploy "ShopWebHosting-$APP_STAGE" --require-approval never
+      post-deploy-command: node scripts/verify-site.mjs

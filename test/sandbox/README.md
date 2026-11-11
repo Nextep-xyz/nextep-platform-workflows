@@ -12,6 +12,8 @@ of a scratch repository in a **dev** account, set the repository variable `AWS_R
 | [`environment-deploy.yml`](callers/environment-deploy.yml) | `lego-aws-environment-deploy`, `compute: lambda` |
 | [`cicd-lambda-hub-like.yml`](callers/cicd-lambda-hub-like.yml) | `lego-aws-cicd`, lambdalith, `db-access: iam-direct`, two package roots, hotswap in dev/stg |
 | [`environment-deploy-hub-like.yml`](callers/environment-deploy-hub-like.yml) | `lego-aws-environment-deploy`, `migrate-before-deploy`, `post-deploy-command`, several branches to one environment |
+| [`environment-deploy-static.yml`](callers/environment-deploy-static.yml) | `lego-aws-environment-deploy`, `compute: static` (single-page app: build as prepare, guard, deploy, verification; no database stage) |
+| [`cicd-static.yml`](callers/cicd-static.yml) | `lego-aws-cicd`, `compute: static` |
 
 **Status: NOT VERIFIED.** Nothing here has been run against a real account. The dev integration runs of the spec
 (`SPEC.md` P1.3/P1.4) are pending until a dev AWS account is available.

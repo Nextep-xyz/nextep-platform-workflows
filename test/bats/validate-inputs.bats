@@ -379,3 +379,77 @@ run_validate() { run "$SCRIPTS/validate-inputs.sh" "$1"; }
   run_validate environment-deploy
   [ "$status" -eq 0 ] || { echo "$output"; return 1; } # `{stage: 1}` is not the placeholder `{stage}`: only the exact token counts
 }
+
+# --- compute: static ---------------------------------------------------------------------------------------------------
+# G8: the tests below run WITH $GITHUB_OUTPUT defined (Actions always defines it); a path that only works without it
+# is a path that does not work.
+
+@test "static: a minimal environment-deploy caller needs no image, no database and passes, with GITHUB_OUTPUT defined" {
+  static_env_deploy
+  export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/gh-output"
+  : >"$GITHUB_OUTPUT"
+  run_validate environment-deploy
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"compute=static"* ]]
+}
+
+@test "static: a minimal cicd caller passes (build + deploy-command) and requires deploy-command" {
+  static_cicd_env
+  export GITHUB_OUTPUT="$BATS_TEST_TMPDIR/gh-output"
+  : >"$GITHUB_OUTPUT"
+  run_validate cicd
+  [ "$status" -eq 0 ]
+  export INPUT_DEPLOY_COMMAND=""
+  run_validate cicd
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'deploy-command' is required"* ]]
+}
+
+@test "G5: static rejects every database input and names it" {
+  local pair name value
+  for pair in \
+    'INPUT_BASTION_ID_SSM_PARAM=/{project}/core/{stage}/bastion-id' \
+    'INPUT_DB_ENDPOINT_SSM_PARAM=/{project}/core/{stage}/db-endpoint' \
+    'INPUT_DB_SECRET_ID={project}/{env}/db' \
+    'INPUT_DB_NAME=shop_db' \
+    'INPUT_DB_SCHEMA=shop_schema' \
+    'INPUT_MIGRATION_PRE_COMMAND=pnpm run db:prep' \
+    'INPUT_POST_MIGRATE_COMMAND=pnpm run db:seed' \
+    'INPUT_DB_ACCESS=iam-direct' \
+    'INPUT_MIGRATE_BEFORE_DEPLOY=true' \
+    'INPUT_MIGRATION_COMMAND=pnpm run db:deploy' \
+    'INPUT_MIGRATION_VERIFY_COMMAND=pnpm run db:status'; do
+    name="${pair%%=*}"
+    value="${pair#*=}"
+    static_env_deploy
+    export "$name=$value"
+    run_validate environment-deploy
+    [ "$status" -eq 1 ] || { echo "$name was accepted with compute=static"; return 1; }
+    local shown="${name#INPUT_}"
+    shown="$(tr '[:upper:]_' '[:lower:]-' <<<"$shown")"
+    [[ "$output" == *"input '$shown' is not allowed with compute=static"* ]] || { echo "message for $name: $output"; return 1; }
+  done
+}
+
+@test "static: the contract defaults of the migration commands are harmless (they cannot be told apart from 'not set')" {
+  static_env_deploy
+  export INPUT_MIGRATION_COMMAND="make migrate" INPUT_MIGRATION_VERIFY_COMMAND="make migrate-status" INPUT_DB_ACCESS=ssm-tunnel INPUT_MIGRATE_BEFORE_DEPLOY=false
+  run_validate environment-deploy
+  [ "$status" -eq 0 ]
+}
+
+@test "static: image-tag (rollback) is rejected like for lambda" {
+  static_env_deploy
+  export INPUT_IMAGE_TAG=abc123
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'image-tag'"* ]]
+}
+
+@test "static: the compute enum message lists static" {
+  static_env_deploy
+  export INPUT_COMPUTE=vm
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"lambda, ecs or static"* ]]
+}

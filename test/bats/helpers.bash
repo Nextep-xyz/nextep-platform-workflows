@@ -59,3 +59,15 @@ hub_like_env_deploy() {
   export INPUT_BRANCH_MAP='{"main":"prod","staging":"stg","develop":"dev","infra-deploy":"dev"}'
   export INPUT_MIGRATE_BEFORE_DEPLOY=true
 }
+
+# A static site (single-page app on object storage + CDN): no image, no database stage.
+static_env_deploy() {
+  common_env
+  export INPUT_COMPUTE=static INPUT_ENVIRONMENT=prod EVENT_NAME=workflow_dispatch REF_NAME=main
+  export INPUT_BRANCH_MAP='{"main":"prod"}' INPUT_INFRA_DEPLOY_COMMAND='cd infra && pnpm exec cdk deploy "ShopWebHosting-$APP_STAGE"'
+}
+
+static_cicd_env() {
+  common_env
+  export INPUT_COMPUTE=static INPUT_DEPLOY_COMMAND='pnpm --dir infra exec cdk deploy "ShopWebHosting-$APP_STAGE"'
+}

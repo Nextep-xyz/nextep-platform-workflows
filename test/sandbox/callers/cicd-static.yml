@@ -1,0 +1,20 @@
+# Fictional caller (project "shop-web", compute static). Gate on every push; the deploy is build + deploy-command.
+name: cicd
+on:
+  push:
+    branches: [develop]
+    paths-ignore: ["**/*.md", "docs/**"]
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main
+    with:
+      project: shop-web
+      environment: dev
+      compute: static
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      package-manager: pnpm
+      lint-command: pnpm exec tsc --noEmit
+      test-command: pnpm test
+      build-command: pnpm build --mode development
+      deploy-command: pnpm --dir infra exec cdk deploy "ShopWebHosting-$APP_STAGE" --require-approval never

@@ -34,6 +34,12 @@ principal es `branch-map`, obligatorio en `environment-deploy`), **sin input `ru
 Los contratos máquina-legibles están en `contracts/`, la matriz de paridad en `docs/parity/matrix.yml` y la guía de adopción y operación en
 `docs/runbook.md`. Lo no verificado (spikes S1, S3, S4 y las pruebas de integración en dev) sigue marcado como tal en `docs/adr/` y en `test/sandbox/`.
 
+**Enmienda `compute: static` (v1.2.0).** `compute` admite un tercer valor, `static`: una SPA en almacenamiento de objetos + CDN. Es un cambio aditivo (los `name:` de los jobs no cambian).
+- Sin imagen (`image-tag` se rechaza, como en `lambda`) y **sin etapa de base de datos**: en `environment-deploy` se apagan el job `database-migration`, los pasos del túnel y de `migrate` de `infra-deploy` y el job `post-deploy` separado; el `post-deploy-command` corre como paso final de `infra-deploy`. En `lego-aws-cicd`, `static` despliega como `lambda` (`build-command` + `deploy-command`).
+- `validate-inputs.sh` **rechaza** (nombrando el input) los de BD con valor: `bastion-id-ssm-param`, `db-endpoint-ssm-param`, `db-secret-id`, `db-name`, `db-schema`, `migration-pre-command`, `post-migrate-command`, `db-access=iam-direct`, `migrate-before-deploy=true` y los dos comandos de migración distintos de su default. Config muerta aceptada en silencio es config que miente.
+- Invariantes con gate por disco (`test/gates/static-compute.bats`): todo valor de `compute` aceptado tiene un caller en `test/sandbox/callers/`; cada pieza de la etapa de BD se apaga para `static`. Callers de ejemplo: `environment-deploy-static.yml` y `cicd-static.yml`.
+- Guard recomendado para el consumidor: un `prepare-check-command` que verifique que la salida del build no esté vacía (un deploy que poda el destino lo vaciaría).
+
 ---
 
 ## 1. Problema y alcance

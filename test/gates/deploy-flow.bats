@@ -77,8 +77,8 @@ load 'lib/gates'
     jq -r '.jobs["infra-deploy"].steps[] | select(.id == "tunnel") | .if // ""' <<<"$json" | grep -q "inputs.db-access == 'ssm-tunnel'" ||
       gate_violation "$wf" "the tunnel step of infra-deploy must run only when db-access=ssm-tunnel"
     jq -r '.jobs["infra-deploy"].steps[] | select((.uses // "") | test("/actions/post-deploy@")) | .if // ""' <<<"$json" |
-      grep -q "inputs.migrate-before-deploy && inputs.post-deploy-command != ''" ||
-      gate_violation "$wf" "the post-deploy step of infra-deploy must run only with migrate-before-deploy and a post-deploy-command"
+      grep -qF "inputs.migrate-before-deploy || inputs.compute == 'static') && inputs.post-deploy-command != ''" ||
+      gate_violation "$wf" "the post-deploy step of infra-deploy must run only with (migrate-before-deploy or compute static) and a post-deploy-command"
 
     # The other order (infrastructure -> migration -> post-deploy) keeps its jobs, each waiting for the previous one.
     jq -r '.jobs["database-migration"].if // ""' <<<"$json" | grep -q "!inputs.migrate-before-deploy" ||
