@@ -215,13 +215,13 @@ jobs:
           persist-credentials: false
       # parity: P-CI-05, H-01
       - name: Validate the inputs
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           flow: cicd
           inputs-json: ${{ toJSON(inputs) }}
       # parity: P-CI-01
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -230,7 +230,7 @@ jobs:
           install-dirs: ${{ inputs.install-dirs }}
       # parity: P-CI-02, P-CI-03, P-CI-04
       - name: Quality gate
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -262,7 +262,7 @@ jobs:
           persist-credentials: false
       # parity: P-CI-01
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -271,7 +271,7 @@ jobs:
           install-dirs: ${{ inputs.install-dirs }}
       # parity: P-CI-06, H-06
       - name: Assume the environment role
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
@@ -279,7 +279,7 @@ jobs:
       - name: Prepare the SSM tunnel
         id: tunnel
         if: ${{ inputs.db-access == 'ssm-tunnel' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -288,7 +288,7 @@ jobs:
           db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
       # parity: P-CI-09, P-CI-14
       - name: Migrate
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           mode: cicd
           project: ${{ inputs.project }}
@@ -334,7 +334,7 @@ jobs:
       # parity: P-CI-01
       - name: Set up the project
         if: ${{ inputs.compute == 'lambda' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -344,14 +344,14 @@ jobs:
       # parity: P-CI-06, H-06, H-07
       - name: Assume the environment role
         id: oidc
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
       # parity: P-CI-11, P-CI-12, H-08, H-13
       - name: Deploy the lambdas
         if: ${{ inputs.compute == 'lambda' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-lambda@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-lambda@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -365,7 +365,7 @@ jobs:
           deploy-env-secrets: ${{ inputs.deploy-env-secrets }}
       # parity: H-09
       - name: Post-deploy command
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -375,7 +375,7 @@ jobs:
       # parity: P-CI-07, P-CI-10, P-CI-13
       - name: Deploy the ECS service
         if: ${{ inputs.compute == 'ecs' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-ecs@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-ecs@b915c1c751edab4285039a8e2f303cd20f1eafbd
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
