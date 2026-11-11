@@ -1,0 +1,72 @@
+# Release of this repository (SPEC D3/D4). The ONLY way to create `vX.Y.Z` and move the alias `vX`: the tag ruleset
+# (configured in GitHub, not in this file) must reject any other actor. Never run it from a branch other than main.
+#   1. runs the whole suite on the commit to release;
+#   2. scripts/release.sh pins every internal reference to THAT commit (gate G11 checks the result on disk);
+#   3. commits the rewritten tree on top of it and tags it: callers pin this release commit, composites resolve to the source.
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semantic version without the v, for example 1.0.0. An existing vX.Y.Z is never moved or deleted."
+        type: string
+        required: true
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Guard the version and the branch
+        env:
+          VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ $REF_NAME == main ]] || { echo "::error::releases are cut from main only (got '$REF_NAME')"; exit 1; }
+          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be X.Y.Z (got '$VERSION')"; exit 1; }
+          if git rev-parse --verify --quiet "refs/tags/v${VERSION}" >/dev/null; then
+            echo "::error::v${VERSION} already exists: a published tag is never moved or deleted; cut a new version"; exit 1
+          fi
+      - name: Install pinned tools
+        run: scripts/ci/install-tools.sh
+      - name: Run the suite on the commit to release
+        env:
+          REQUIRE_TOOLS: "1"
+          # Organization secret with internal names (G13). Missing => the public-names gate fails the release.
+          INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}
+        run: bats --recursive test/bats test/gates
+      - name: Build the release tree
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: scripts/release.sh "$SOURCE_SHA" "$RUNNER_TEMP/release-tree"
+      - name: Commit, tag and move the major alias
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --detach "$SOURCE_SHA"
+          git rm -r -q --cached . >/dev/null
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -a "$RUNNER_TEMP/release-tree/." .
+          git add -A -f .
+          git commit -q -m "release: v${VERSION} (internal references pinned to ${SOURCE_SHA})"
+          git tag -a "v${VERSION}" -m "v${VERSION}"
+          git tag -f "v${VERSION%%.*}" "v${VERSION}"
+          git push origin "refs/tags/v${VERSION}"
+          git push --force origin "refs/tags/v${VERSION%%.*}"

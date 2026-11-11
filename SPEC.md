@@ -1,7 +1,7 @@
 # SPEC — nextep-platform-workflows
 
 > Hoja de ruta de ingeniería del motor de CI/CD. Contexto e idea: [`README.md`](./README.md).
-> **Estado: BORRADOR — pendiente de aprobación. No se escribe ningún workflow hasta aprobarlo.**
+> **Estado: P1 y P2 (H1–H4) implementadas y verificadas solo en local; la enmienda de §0 manda. F0–F3 de §11 son el diseño original, no el estado.** Sin `v1`, sin spikes ni runs en `dev`.
 >
 > **Cómo leerlo:** §3–§9 son el **diseño objetivo** (contratos y mecanismos). §11 es lo que se construye
 > **ahora**: un proyecto piloto, registrando patrones existentes antes de implementar, fase por fase. Lo que no
@@ -15,6 +15,24 @@
 | **Ejecutor previsto** | Agente autónomo, fase por fase (§11), o un DevOps sin contexto de la conversación |
 | **Lo que NO está verificado** | Marcado como **[SPIKE]** en §3. Se resuelve en F0 antes de implementar |
 | **Preguntas bloqueantes** | §13 (`[bloquea F#]`) |
+
+---
+
+## 0. Enmienda P1 (2026-11-09) — vigente sobre lo que diga el resto de este documento
+
+La primera fase de implementación cambió tres cosas respecto al diseño original de abajo. Donde haya contradicción, **manda esta enmienda**:
+
+| # | Cambia | Antes | Ahora (P1) |
+|---|---|---|---|
+| E1 | Eje de los workflows | Por cómputo: `lego-aws-ecs`, `lego-aws-lambda` | **Por flujo:** `lego-aws-cicd` y `lego-aws-environment-deploy`; el cómputo es el input `compute` (`lambda` \| `ecs`). Los nombres de archivo están congelados (quedan en el `job_workflow_ref` de las trust policies) |
+| E2 | Infra | Fuera de alcance | **Dentro** de `lego-aws-environment-deploy`, con el stack del rol OIDC siempre excluido (guard G19) |
+| E3 | Modo de migración | `ecs-task` primero, `ssm-tunnel` después | **P1 = `ssm-tunnel` endurecido**; `ecs-task` queda para una etapa posterior |
+
+Además, en P1: **sin GitHub Environments** (el ambiente es un input lógico y el rol sale de `vars` del repo, una por ambiente; la barrera
+principal es `branch-map`, obligatorio en `environment-deploy`), **sin input `runner`** (todo en `ubuntu-latest`), `id-token: write` solo en
+`database-migration`, `deploy` e `infra-deploy`, y el bloque DORA escrito pero **comentado** en ambos workflows.
+Los contratos máquina-legibles están en `contracts/`, la matriz de paridad en `docs/parity/matrix.yml` y la guía de adopción y operación en
+`docs/runbook.md`. Lo no verificado (spikes S1, S3, S4 y las pruebas de integración en dev) sigue marcado como tal en `docs/adr/` y en `test/sandbox/`.
 
 ---
 
@@ -814,7 +832,10 @@ ubicación del colector (es un input), orden de implementación de `deploy-mode`
 
 | Fase | Estado |
 |---|---|
-| F0 – F3 | **Pendiente.** Spec en borrador, sin aprobar |
+| P1 (`lego-aws-cicd`, `lego-aws-environment-deploy`) | **Hecha** (local). Pendiente: spikes S1/S3/S4, runs en `dev`, rulesets, release `v1` |
+| P2 (lambdalith + DSQL, H1–H4) | **Hecha** (local, rama `feat/p2-workflows-lambdalith-dsql`, sin push) |
+| Adopción por los consumidores | Se rastrea en los repositorios consumidores, no aquí; requiere `v1` y las variables `AWS_ROLE_ARN_*` del caller |
+| F0 – F3 (diseño original) | Superadas por la enmienda §0; Azure sigue en backlog |
 
 **Hecho (2026-10-29):** `README.md` (la idea), `SPEC.md` (este documento) y `AGENTS.md` redactados a partir de la
 lectura de pipelines internos preexistentes (inventario en un repositorio privado). **No hay workflows ni scripts implementados.**

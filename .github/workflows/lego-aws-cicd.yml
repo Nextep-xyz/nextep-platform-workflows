@@ -1,0 +1,410 @@
+# Reusable workflow: fast CI/CD. Gate (lint + tests) -> database migration (when configured) -> quick deploy.
+# Contract: contracts/lego-aws-cicd.contract.yml (gate G12). The caller decides WHEN it runs (on.push filters live in
+# the caller) and grants: permissions: { id-token: write, contents: read, pull-requests: write }.
+name: lego-aws-cicd
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: "Project prefix (^[a-z][a-z0-9-]{1,15}$). Used in templates, concurrency and reports."
+        type: string
+        required: true
+      environment:
+        description: "Logical environment: dev, stg or prod. It is NOT a GitHub Environment."
+        type: string
+        required: true
+      compute:
+        description: "lambda or ecs."
+        type: string
+        required: true
+      aws-region:
+        description: "AWS region."
+        type: string
+        default: "us-east-2"
+      role-arn:
+        description: "Role to assume through OIDC. Pass it from a repository variable, never a literal."
+        type: string
+        required: true
+      package-manager:
+        description: "npm or pnpm."
+        type: string
+        default: "pnpm"
+      pnpm-version:
+        description: "pnpm version. Empty means the packageManager field of package.json."
+        type: string
+        default: ""
+      node-version:
+        description: "Node version (ignored when node-version-file is set)."
+        type: string
+        default: "22"
+      node-version-file:
+        description: "File with the Node version, for example .nvmrc."
+        type: string
+        default: ""
+      branch-map:
+        description: "JSON object branch -> environment. Guard against deploying a branch to the wrong environment."
+        type: string
+        default: ""
+      bastion-id-ssm-param:
+        description: "Template of the SSM parameter with the bastion instance id. Setting it enables the migration."
+        type: string
+        default: ""
+      db-endpoint-ssm-param:
+        description: "Template of the SSM parameter with the database endpoint."
+        type: string
+        default: ""
+      db-secret-id:
+        description: "Template of the secret id with the keys username and password."
+        type: string
+        default: ""
+      db-name:
+        description: "Database name."
+        type: string
+        default: ""
+      db-schema:
+        description: "Database schema."
+        type: string
+        default: ""
+      db-port:
+        description: "Database port, also the local port of the tunnel."
+        type: number
+        default: 5432
+      db-ssl-mode:
+        description: "verify-full or require. Nothing weaker is accepted."
+        type: string
+        default: "verify-full"
+      db-url-template:
+        description: "Template of the database connection URL given to the migration commands. Placeholders: user, password (URL-encoded), host, port, db, schema, sslmode."
+        type: string
+        default: "postgresql://{user}:{password}@{host}:{port}/{db}?schema={schema}&sslmode={sslmode}"
+      migration-pre-command:
+        description: "Generic hook that runs inside the tunnel before the migration (debt, see the roadmap)."
+        type: string
+        default: ""
+      migration-command:
+        description: "Command that applies the migrations."
+        type: string
+        default: "make migrate"
+      migration-verify-command:
+        description: "Command that exits non-zero when the database is not aligned."
+        type: string
+        default: "make migrate-status"
+      post-migrate-command:
+        description: "Idempotent seed command."
+        type: string
+        default: ""
+      migration-timeout-minutes:
+        description: "Timeout of each database command, in minutes."
+        type: number
+        default: 20
+      run-deploy:
+        description: "false runs only the quality gate (pull requests)."
+        type: boolean
+        default: true
+      lint-command:
+        description: "Lint command."
+        type: string
+        default: "make lint"
+      test-command:
+        description: "Test command."
+        type: string
+        default: "make test-ci"
+      test-postgres:
+        description: "Start an ephemeral Postgres and expose TEST_DATABASE_URL to the test command."
+        type: boolean
+        default: false
+      build-command:
+        description: "Application build command."
+        type: string
+        default: ""
+      required-ssm-params:
+        description: "JSON array of SSM parameter templates that must exist before deploying."
+        type: string
+        default: "[]"
+      required-secrets:
+        description: "JSON array of secret id templates that must exist before deploying."
+        type: string
+        default: "[]"
+      deploy-command:
+        description: "Full deploy command (compute lambda)."
+        type: string
+        default: ""
+      hotswap-command:
+        description: "Faster deploy command used only in hotswap-environments."
+        type: string
+        default: ""
+      hotswap-environments:
+        description: "Comma separated environments that use hotswap-command."
+        type: string
+        default: "dev"
+      deploy-env-ssm:
+        description: "JSON map VAR -> SSM parameter template, exposed to the deploy command only."
+        type: string
+        default: "{}"
+      deploy-env-secrets:
+        description: "JSON map VAR -> secret-id#json-key template, exposed to the deploy command only."
+        type: string
+        default: "{}"
+      ecs-cluster-ssm-param:
+        description: "Template of the SSM parameter with the ECS cluster name."
+        type: string
+        default: ""
+      ecs-service-ssm-param:
+        description: "Template of the SSM parameter with the ECS service name."
+        type: string
+        default: ""
+      ecs-deploy-mode:
+        description: "Only force-new-deployment is supported in this version."
+        type: string
+        default: "force-new-deployment"
+      ecr-repository:
+        description: "Template of the ECR repository name."
+        type: string
+        default: ""
+      dockerfile:
+        description: "Dockerfile path."
+        type: string
+        default: "Dockerfile"
+      docker-context:
+        description: "Docker build context."
+        type: string
+        default: "."
+      docker-target:
+        description: "Docker build target (empty means the last stage)."
+        type: string
+        default: ""
+      db-access:
+        description: "ssm-tunnel (secret + SSM tunnel) or iam-direct (no tunnel and no secret: the migration command signs its own IAM token)."
+        type: string
+        default: "ssm-tunnel"
+      install-dirs:
+        description: "Comma separated package roots to install, each with its own lockfile."
+        type: string
+        default: "."
+      test-database-image:
+        description: "Image of a disposable Postgres for the tests, with a fixed tag or a digest (never latest). Empty starts none."
+        type: string
+        default: ""
+      post-deploy-command:
+        description: "Command that runs after the deploy with the assumed role (verifications). Never deploys the OIDC role stack."
+        type: string
+        default: ""
+      # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
+      # telemetry-url: { type: string, default: "" }
+      # DORA-PLACEHOLDER:END
+    # DORA-PLACEHOLDER:BEGIN
+    # secrets:
+    #   TELEMETRY_TOKEN: { required: false }
+    # DORA-PLACEHOLDER:END
+
+jobs:
+  quality-and-security-gate:
+    name: quality-and-security-gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    concurrency:
+      group: gate-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - name: Check out the caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # parity: P-CI-05, H-01
+      - name: Validate the inputs
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@main
+        with:
+          flow: cicd
+          inputs-json: ${{ toJSON(inputs) }}
+      # parity: P-CI-01
+      - name: Set up the project
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: ${{ inputs.package-manager }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+          node-version: ${{ inputs.node-version }}
+          node-version-file: ${{ inputs.node-version-file }}
+          install-dirs: ${{ inputs.install-dirs }}
+      # parity: P-CI-02, P-CI-03, P-CI-04
+      - name: Quality gate
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          compute: ${{ inputs.compute }}
+          test-database-image: ${{ inputs.test-database-image }}
+          lint-command: ${{ inputs.lint-command }}
+          test-command: ${{ inputs.test-command }}
+          test-postgres: ${{ inputs.test-postgres }}
+          build-command: ${{ inputs.build-command }}
+
+  database-migration:
+    name: database-migration
+    needs: [quality-and-security-gate]
+    # parity: H-10, H-11
+    if: ${{ inputs.run-deploy && (inputs.bastion-id-ssm-param != '' || (inputs.db-access == 'iam-direct' && inputs.db-endpoint-ssm-param != '')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    concurrency:
+      group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out the caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # parity: P-CI-01
+      - name: Set up the project
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: ${{ inputs.package-manager }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+          node-version: ${{ inputs.node-version }}
+          node-version-file: ${{ inputs.node-version-file }}
+          install-dirs: ${{ inputs.install-dirs }}
+      # parity: P-CI-06, H-06
+      - name: Assume the environment role
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        with:
+          role-arn: ${{ inputs.role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+      # parity: P-CI-08
+      - name: Prepare the SSM tunnel
+        id: tunnel
+        if: ${{ inputs.db-access == 'ssm-tunnel' }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          bastion-id-ssm-param: ${{ inputs.bastion-id-ssm-param }}
+          db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
+      # parity: P-CI-09, P-CI-14
+      - name: Migrate
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
+        with:
+          mode: cicd
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          db-access: ${{ inputs.db-access }}
+          db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
+          bastion-id: ${{ steps.tunnel.outputs.bastion-id }}
+          db-endpoint: ${{ steps.tunnel.outputs.db-endpoint }}
+          ca-bundle: ${{ steps.tunnel.outputs.ca-bundle }}
+          db-secret-id: ${{ inputs.db-secret-id }}
+          db-name: ${{ inputs.db-name }}
+          db-schema: ${{ inputs.db-schema }}
+          db-port: ${{ inputs.db-port }}
+          db-ssl-mode: ${{ inputs.db-ssl-mode }}
+          db-url-template: ${{ inputs.db-url-template }}
+          migration-pre-command: ${{ inputs.migration-pre-command }}
+          migration-command: ${{ inputs.migration-command }}
+          migration-verify-command: ${{ inputs.migration-verify-command }}
+          post-migrate-command: ${{ inputs.post-migrate-command }}
+          migration-timeout-minutes: ${{ inputs.migration-timeout-minutes }}
+
+  deploy:
+    name: deploy
+    needs: [quality-and-security-gate, database-migration]
+    if: >-
+      ${{ always() && inputs.run-deploy
+      && needs.quality-and-security-gate.result == 'success'
+      && (needs.database-migration.result == 'success' || needs.database-migration.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    concurrency:
+      group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out the caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # parity: P-CI-01
+      - name: Set up the project
+        if: ${{ inputs.compute == 'lambda' }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: ${{ inputs.package-manager }}
+          pnpm-version: ${{ inputs.pnpm-version }}
+          node-version: ${{ inputs.node-version }}
+          node-version-file: ${{ inputs.node-version-file }}
+          install-dirs: ${{ inputs.install-dirs }}
+      # parity: P-CI-06, H-06, H-07
+      - name: Assume the environment role
+        id: oidc
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        with:
+          role-arn: ${{ inputs.role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+      # parity: P-CI-11, P-CI-12, H-08, H-13
+      - name: Deploy the lambdas
+        if: ${{ inputs.compute == 'lambda' }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-lambda@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          aws-account-id: ${{ steps.oidc.outputs.account-id }}
+          build-command: ${{ inputs.build-command }}
+          deploy-command: ${{ inputs.deploy-command }}
+          hotswap-command: ${{ inputs.hotswap-command }}
+          hotswap-environments: ${{ inputs.hotswap-environments }}
+          deploy-env-ssm: ${{ inputs.deploy-env-ssm }}
+          deploy-env-secrets: ${{ inputs.deploy-env-secrets }}
+      # parity: H-09
+      - name: Post-deploy command
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          aws-account-id: ${{ steps.oidc.outputs.account-id }}
+          post-deploy-command: ${{ inputs.post-deploy-command }}
+      # parity: P-CI-07, P-CI-10, P-CI-13
+      - name: Deploy the ECS service
+        if: ${{ inputs.compute == 'ecs' }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-ecs@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          required-ssm-params: ${{ inputs.required-ssm-params }}
+          required-secrets: ${{ inputs.required-secrets }}
+          ecs-cluster-ssm-param: ${{ inputs.ecs-cluster-ssm-param }}
+          ecs-service-ssm-param: ${{ inputs.ecs-service-ssm-param }}
+          ecr-repository: ${{ inputs.ecr-repository }}
+          dockerfile: ${{ inputs.dockerfile }}
+          docker-context: ${{ inputs.docker-context }}
+          docker-target: ${{ inputs.docker-target }}
+
+  # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
+  # telemetry-phone-home:
+  #   name: telemetry-phone-home
+  #   needs: [quality-and-security-gate, database-migration, deploy]
+  #   if: always()
+  #   runs-on: ubuntu-latest
+  #   permissions: { contents: read }
+  #   steps:
+  #     - name: Send deployment event to the DORA collector
+  #       continue-on-error: true            # telemetry never breaks the pipeline
+  #       uses: Nextep-xyz/nextep-platform-workflows/.github/actions/telemetry@<SHA>
+  #       with:
+  #         telemetry-url: ${{ inputs.telemetry-url }}      # empty = nothing is sent
+  #         telemetry-token: ${{ secrets.TELEMETRY_TOKEN }}
+  #         project: ${{ inputs.project }}
+  #         environment: ${{ inputs.environment }}
+  #         flow: cicd
+  #         results: ${{ toJSON(needs) }}
+  # DORA-PLACEHOLDER:END

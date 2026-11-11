@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+echo "docker $*" >>"${FAKE_LOG:-/dev/null}"
+exit "${FAKE_DOCKER_RC:-0}"

@@ -2,9 +2,11 @@
 
 Este archivo es para ti, agente. Cumple lo que dice aquí y, si algo no encaja, **reporta en vez de improvisar**.
 
-**Qué es este repo:** workflows reutilizables de GitHub Actions (`lego-aws-ecs`, `lego-aws-lambda`,
-`lego-azure-satellite`). Idea: `README.md`. Contratos y plan: `SPEC.md`.
-**Estado:** diseño. Lo vigente es `SPEC.md §11` (fases) y `§14` (estado).
+**Qué es este repo:** workflows reutilizables de GitHub Actions: `lego-aws-cicd` y `lego-aws-environment-deploy`
+(implementados en P1; el eje es el **flujo**, el cómputo es el input `compute`). `lego-azure-satellite` sigue en diseño.
+Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre el resto**). Adopción y operación: `docs/runbook.md`.
+**Estado:** P1 hecha y verificada solo en local. **No verificado:** spikes S1/S3/S4 y runs en `dev` (`docs/adr/`,
+`test/sandbox/README.md`). Sin tag `v1`. El detalle de fases vive en el spec P1 del repo privado de diseño.
 
 > ## ⚠️ Este repo es PÚBLICO
 > Todo lo que escribas aquí (código, ejemplos, mensajes de commit, issues, PRs, comentarios) lo puede leer
@@ -22,7 +24,7 @@ Este archivo es para ti, agente. Cumple lo que dice aquí y, si algo no encaja, 
 
 ## 1. Primero, ubícate
 
-1. Lee `SPEC.md §14` (qué fase toca) y `§11` (la fase: "Toca / No toca", tareas, aceptación).
+1. Lee `SPEC.md §0` (enmienda P1), `§14` y `§11` (fase, "Toca / No toca", tareas, aceptación) y el spec P1 si te lo dan.
 2. Si el spec está en BORRADOR, **no implementes**. Propón cambios al spec.
 3. Si la realidad contradice el spec: **detente y actualiza el spec primero**. No parches el código.
 4. Lo marcado **[SPIKE]** en `SPEC.md §3` **no está verificado**: no lo des por cierto ni lo cites como hecho.
@@ -30,15 +32,19 @@ Este archivo es para ti, agente. Cumple lo que dice aquí y, si algo no encaja, 
 ## 2. Si te piden usar estos workflows (modo consumidor)
 
 - El pipeline de un proyecto es un **caller de pocas líneas** (`SPEC.md §5.2`):
-  `uses: <org>/nextep-platform-workflows/.github/workflows/<workflow>.yml@v1` con `with:` y `secrets:`.
+  `uses: <org>/nextep-platform-workflows/.github/workflows/<workflow>.yml@v1` con `with:` y `secrets:`
+(`@v1` aún no existe: hasta el primer release no hay nada estable que consumir).
   **No copies la lógica** a otro repo ni escribas un pipeline propio "parecido".
 - El caller concede `permissions: { id-token: write, contents: read, pull-requests: write }`. Sin eso el
   workflow falla; no lo "arregles" quitando pasos.
-- Rol y cuenta cloud entran por `vars` del GitHub Environment (`${{ vars.… }}`), **nunca literales** en el YAML.
+- Rol y cuenta cloud entran por `vars` **del repo**, una por ambiente (`AWS_ROLE_ARN_DEV|STG|PROD`), **nunca literales**
+  en el YAML. P1 **no usa GitHub Environments**: la barrera es `branch-map` + solo `workflow_dispatch` en
+  `environment-deploy` + ruleset de ramas + trust policy de `prod` acotada a `main`.
 - El id del job del caller es parte del nombre del *required check* (`<job-id> / <job-del-workflow>`): no lo cambies
   sin actualizar la branch protection.
-- El proyecto debe exponer los targets de `make` del contrato (`lint`, `test-ci`, `migrate`, `migrate-status`,
-  y `build` si aplica). Si faltan, el gate falla nombrando el target: añádelo en el proyecto.
+- Los comandos del proyecto (lint, test, migrate, migrate-status, seed) son **inputs del caller**; los defaults son targets
+  de `make` (`make lint`, `make test-ci`, `make migrate`, ...) y se sobreescriben por input (ver `contracts/` y
+  `test/sandbox/callers/`). Si falta uno, el workflow falla nombrándolo.
 - Si el workflow no cubre lo que necesitas: **repórtalo** (qué input o paso falta). No copies YAML de otro sitio.
 - Nunca desactives ni relajes el gate de calidad/seguridad; no existe un input para eso, y no debe existir.
 
@@ -68,7 +74,8 @@ Este archivo es para ti, agente. Cumple lo que dice aquí y, si algo no encaja, 
   `docs/exceptions.yml`). Una entrada obsoleta o vencida falla el build.
 - **Reglas de los workflows (cada una tiene su gate):**
   - Toda `uses:` de terceros por **SHA**, no por tag. Referencias internas a composites por SHA (`release.sh`).
-  - Todo job declara `permissions:` mínimos; `id-token: write` solo en `database-migration` y `deploy`.
+  - Todo job declara `permissions:` mínimos; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `database-migration-before-deploy`, `deploy`, `infra-deploy`, `post-deploy`).
+  - **Un composite no referencia a otro composite** (gate G11): el SHA de release se escribe solo en los workflows. La cuenta AWS nunca es input ni literal (GH5): sale del output `account-id` de `aws-oidc`.
   - **Nunca** `${{ inputs.* }}` ni `${{ github.event.* }}` dentro de `run:`: pásalos por `env:`.
   - **Nunca** `pull_request_target` con código del PR, ni `NODE_TLS_REJECT_UNAUTHORIZED`.
   - Credenciales: `::add-mask::` antes del primer uso, solo en el `env:` del paso que las necesita, nunca en
@@ -76,11 +83,12 @@ Este archivo es para ti, agente. Cumple lo que dice aquí y, si algo no encaja, 
   - `continue-on-error: true` **solo** en telemetría y reporte; el gate, la migración y el deploy fallan de verdad.
   - Telemetría: solo los campos del esquema (`additionalProperties: false`). Añadir un campo = nueva `schema_version`.
 - **Scripts:** bash con `set -euo pipefail`, `shellcheck` limpio y un test `bats` con `aws`/`az`/`curl` falsos.
-- **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml`. **Nunca** crees, muevas ni
+- **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml` (existe, **sin ejecutar**; sus rulesets se configuran a mano en GitHub). **Nunca** crees, muevas ni
   borres un tag a mano. Un cambio incompatible = versión mayor.
 - **No modifiques repos de proyectos consumidores.** Se prueba en `test/sandbox/` con datos ficticios.
 - **Una fase = un commit coherente.** No empieces otra con la anterior en rojo. Al cerrar, actualiza
-  `SPEC.md §14` (hecho, pendiente, prompt para retomar).
+  el estado de ejecución (hecho, pendiente, prompt para retomar) donde viva el spec de la fase.
+- **Suite local en Windows:** necesita un `jq` que emita LF (`-b`); `jq.exe` emite CRLF y rompe los bats.
 - Commits: `feat:` `docs:` `infra:` `fix:` `ref:` (sin corchetes) + descripción **en inglés**, imperativo, mayúscula
   inicial, sin punto final. Ramas: `feat/`, `infra/`, `chore/`, `ref/` + descripción en español con guiones.
 - Si le das un comando al humano en Windows: **PowerShell** (sin `&&`/`||`) y `aws … --output json` (el CLI de AWS
@@ -105,11 +113,11 @@ Este archivo es para ti, agente. Cumple lo que dice aquí y, si algo no encaja, 
 | Ruta | Qué hay |
 |---|---|
 | `README.md`, `SPEC.md`, `AGENTS.md` | Idea; contratos y plan; este archivo |
-| `.github/workflows/lego-*.yml` 🚧F1–F3 | Los workflows reutilizables |
-| `.github/actions/` 🚧F1 | Composites internos (referenciados por SHA) |
-| `scripts/` 🚧F1–F2 | Lógica en bash, con tests |
-| `contracts/` 🚧F1 | Contratos máquina-legibles y esquema de telemetría |
-| `test/` 🚧F0 | bats, gates por disco, fixtures, sandbox |
-| `docs/` 🚧F0 | ADRs de los spikes, ejemplos de IAM, runbook |
+| `.github/workflows/` | `lego-aws-cicd.yml`, `lego-aws-environment-deploy.yml`, `self-ci.yml` (required check), `release.yml` (único que crea tags) |
+| `.github/actions/` | Composites: aws-oidc, setup-project, ssm-tunnel, migrate, validate-inputs, quality-gate, deploy-lambda, deploy-ecs, infra-deploy, post-deploy |
+| `scripts/` | Lógica en bash, con tests (`test/bats/`) |
+| `contracts/` | Contrato de cada workflow (lo comprueba el gate `contract-sync`) |
+| `test/` | bats, gates por disco (`test/gates/`), fixtures, `sandbox/callers/` |
+| `docs/` | `adr/` (spikes, NOT VERIFIED), `iam/`, `parity/matrix.yml`, `exceptions.yml`, `runbook.md` |
 
-🚧 = aún no existe; se crea en la fase indicada. No lo inventes antes.
+Aún **no existe**: el tag `v1` (nadie ha ejecutado `release.yml`) ni `lego-azure-satellite`. No lo inventes antes.

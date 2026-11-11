@@ -1,0 +1,112 @@
+name: quality-gate
+description: Lint, tests (with an optional ephemeral Postgres) and the app build for ECS. Scanning (gitleaks, trivy) is stage 2.
+inputs:
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  compute:
+    description: lambda or ecs.
+    required: true
+  lint-command:
+    description: Lint command.
+    required: false
+    default: ""
+  test-command:
+    description: Test command.
+    required: false
+    default: ""
+  test-postgres:
+    description: Start an ephemeral Postgres for the tests.
+    required: false
+    default: "false"
+  test-database-image:
+    description: Image (fixed tag or digest) of the disposable Postgres. Non-empty also starts it.
+    required: false
+    default: ""
+  build-command:
+    description: App build (compute ecs).
+    required: false
+    default: ""
+runs:
+  using: composite
+  # No internal `uses:` here on purpose (gate G11): the caller workflow runs setup-project first. A composite that references
+  # another composite of this repository would pin to a commit whose own reference is still @main.
+  steps:
+    - name: Derive the stage
+      id: ctx
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/derive-context.sh" >>"$GITHUB_OUTPUT"
+    # parity: P-CI-03, H-04
+    - name: Start the ephemeral Postgres
+      id: pg
+      if: inputs.test-postgres == 'true' || inputs.test-database-image != ''
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        TEST_PG_IMAGE: ${{ inputs.test-database-image }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/test-postgres.sh"
+    # parity: P-CI-02, H-03, H-05
+    - name: Lint
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.lint-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" lint
+    # parity: P-CI-02
+    - name: Test
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.test-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        TEST_DATABASE_URL: ${{ steps.pg.outputs.database-url }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" test
+    - name: Remove the ephemeral Postgres
+      if: always() && (inputs.test-postgres == 'true' || inputs.test-database-image != '')
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+      run: |
+        "$SCRIPTS/test-postgres.sh" --stop
+    # parity: P-CI-04
+    - name: Build the app
+      if: inputs.compute == 'ecs'
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.build-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" build

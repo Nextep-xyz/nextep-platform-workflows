@@ -1,0 +1,194 @@
+name: infra-deploy
+description: >
+  Full infrastructure deploy - prepare (+ guard), clean, image repository bootstrap (ecs), image build or rollback
+  verification (ecs) and the infra deploy with the image tag pinned only where configured.
+inputs:
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  compute:
+    description: lambda or ecs.
+    required: true
+  aws-account-id:
+    description: Account id of the assumed role (output account-id of the aws-oidc composite). Exposed to the command as AWS_ACCOUNT_ID.
+    required: false
+    default: ""
+  image-tag:
+    description: Empty builds a new image; non-empty is a rollback (verify only).
+    required: false
+    default: ""
+  prepare-command:
+    description: Generates the ORM client / artifacts.
+    required: false
+    default: ""
+  prepare-check-command:
+    description: Guard after prepare; non-zero fails the job.
+    required: false
+    default: ""
+  clean-command:
+    description: Purges the synth cache.
+    required: false
+    default: ""
+  infra-bootstrap-command:
+    description: Deploys the image repository stack (ecs).
+    required: false
+    default: ""
+  infra-deploy-command:
+    description: Deploys the infrastructure.
+    required: true
+  pin-image-tag-environments:
+    description: Comma separated environments where IMAGE_TAG is pinned.
+    required: false
+    default: stg,prod
+  ecr-repository:
+    description: Template of the ECR repository name (ecs).
+    required: false
+    default: ""
+  dockerfile:
+    description: Dockerfile path.
+    required: false
+    default: Dockerfile
+  docker-context:
+    description: Build context.
+    required: false
+    default: .
+  docker-target:
+    description: Build target.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Derive the stage
+      id: ctx
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        TPL_REGION: ${{ inputs.aws-region }}
+        REPOSITORY_TEMPLATE: ${{ inputs.ecr-repository }}
+      run: |
+        set -euo pipefail
+        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        echo "stage=$stage" >>"$GITHUB_OUTPUT"
+        if [[ -n "$REPOSITORY_TEMPLATE" ]]; then
+          export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
+          echo "repository=$("$SCRIPTS/resolve-template.sh" ecr-repository "$REPOSITORY_TEMPLATE")" >>"$GITHUB_OUTPUT"
+        fi
+    # parity: P-EN-03
+    - name: Prepare (generate the ORM client / artifacts)
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.prepare-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" prepare
+    # parity: P-EN-04
+    - name: Prepare guard (the generated artifact is not empty)
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.prepare-check-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" "prepare check"
+    # parity: P-EN-05
+    - name: Clean the synth cache
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.clean-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" clean
+    # parity: P-EN-06
+    - name: Deploy the image repository stack
+      if: inputs.compute == 'ecs'
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.infra-bootstrap-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" "infra bootstrap"
+    - name: Log in to ECR
+      id: ecr
+      if: inputs.compute == 'ecs' && inputs.image-tag == ''
+      uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
+    # parity: P-EN-07
+    - name: Build and push the image
+      if: inputs.compute == 'ecs' && inputs.image-tag == ''
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        REGISTRY: ${{ steps.ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ steps.ctx.outputs.repository }}
+        IMAGE_TAG: ${{ github.sha }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        DOCKERFILE: ${{ inputs.dockerfile }}
+        DOCKER_CONTEXT: ${{ inputs.docker-context }}
+        DOCKER_TARGET: ${{ inputs.docker-target }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/build-push-image.sh"
+    # parity: P-EN-07
+    - name: Rollback - verify that the image exists (nothing is built)
+      if: inputs.compute == 'ecs' && inputs.image-tag != ''
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        AWS_REGION: ${{ inputs.aws-region }}
+        ECR_REPOSITORY: ${{ steps.ctx.outputs.repository }}
+        IMAGE_TAG: ${{ inputs.image-tag }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/ecs-verify-image.sh"
+    # parity: P-EN-08
+    - name: Deploy the infrastructure
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        ENVIRONMENT: ${{ inputs.environment }}
+        INFRA_DEPLOY_COMMAND: ${{ inputs.infra-deploy-command }}
+        PIN_IMAGE_TAG_ENVIRONMENTS: ${{ inputs.pin-image-tag-environments }}
+        DEPLOY_IMAGE_TAG: ${{ inputs.compute == 'ecs' && (inputs.image-tag != '' && inputs.image-tag || github.sha) || '' }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/infra-deploy.sh"

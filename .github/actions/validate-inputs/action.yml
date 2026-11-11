@@ -1,0 +1,24 @@
+name: validate-inputs
+description: Validates the inputs of a lego-aws workflow, the triggering event (G26) and the branch-to-environment guard (G21).
+inputs:
+  flow:
+    description: cicd or environment-deploy.
+    required: true
+  inputs-json:
+    description: toJSON(inputs) of the calling workflow.
+    required: true
+runs:
+  using: composite
+  steps:
+    # parity: P-CI-05, P-EN-01
+    - name: Validate the inputs
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        FLOW: ${{ inputs.flow }}
+        INPUTS_JSON: ${{ inputs.inputs-json }}
+        EVENT_NAME: ${{ github.event_name }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/validate-inputs.sh" "$FLOW"

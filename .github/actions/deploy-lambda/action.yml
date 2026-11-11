@@ -1,0 +1,73 @@
+name: deploy-lambda
+description: Lambda deploy - build, then hotswap (only in the configured environments) or the full deploy, with runtime variables read from SSM/secrets for the deploy step only.
+inputs:
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  aws-account-id:
+    description: Account id of the assumed role (output account-id of the aws-oidc composite). Exposed to the command as AWS_ACCOUNT_ID.
+    required: false
+    default: ""
+  build-command:
+    description: Build command.
+    required: false
+    default: ""
+  deploy-command:
+    description: Full deploy command.
+    required: true
+  hotswap-command:
+    description: Hotswap command.
+    required: false
+    default: ""
+  hotswap-environments:
+    description: Comma separated environments that use the hotswap command.
+    required: false
+    default: dev
+  deploy-env-ssm:
+    description: JSON map VAR to SSM parameter template.
+    required: false
+    default: "{}"
+  deploy-env-secrets:
+    description: JSON map VAR to secret-id#key template.
+    required: false
+    default: "{}"
+runs:
+  using: composite
+  steps:
+    - name: Derive the stage
+      id: ctx
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/derive-context.sh" >>"$GITHUB_OUTPUT"
+    # parity: P-CI-11, P-CI-12
+    - name: Deploy the lambdas
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+        BUILD_COMMAND: ${{ inputs.build-command }}
+        DEPLOY_COMMAND: ${{ inputs.deploy-command }}
+        HOTSWAP_COMMAND: ${{ inputs.hotswap-command }}
+        HOTSWAP_ENVIRONMENTS: ${{ inputs.hotswap-environments }}
+        DEPLOY_ENV_SSM: ${{ inputs.deploy-env-ssm }}
+        DEPLOY_ENV_SECRETS: ${{ inputs.deploy-env-secrets }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/deploy-lambda.sh"

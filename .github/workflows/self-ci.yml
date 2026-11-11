@@ -1,0 +1,66 @@
+# CI of THIS repository (not reusable). Its three jobs are required checks of `main`.
+name: self-ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: self-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-analysis:
+    name: static-analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned tools
+        run: scripts/ci/install-tools.sh
+      - name: actionlint
+        run: actionlint -color
+      - name: shellcheck
+        run: git ls-files -z '*.sh' | xargs -0 -r shellcheck -x -P SCRIPTDIR
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    env:
+      REQUIRE_TOOLS: "1"
+      # Organization secret with internal names (never in the repo). Missing => the public-names gate fails.
+      INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}
+      # Fork PRs have no access to secrets: only the generic detectors run there.
+      GATE_FORK_PR: ${{ github.event.pull_request.head.repo.fork }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned tools
+        run: scripts/ci/install-tools.sh
+      - name: bats (scripts and gates)
+        run: bats --recursive test/bats test/gates
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install pinned tools
+        run: scripts/ci/install-tools.sh
+      - name: gitleaks
+        run: gitleaks git --no-banner --redact --verbose .

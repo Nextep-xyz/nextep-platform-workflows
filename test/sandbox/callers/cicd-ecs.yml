@@ -1,0 +1,30 @@
+# Fictional caller (project "shop", compute ecs). Lives in the caller repository, protected by CODEOWNERS.
+name: cicd
+on:
+  push:
+    branches: [develop]
+    paths-ignore: ["**/*.md", "docs/**", ".github/ISSUE_TEMPLATE/**"] # WHEN it runs is the caller's decision
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd: # the id of this job is part of the required check name
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main
+    with:
+      project: shop
+      environment: dev
+      compute: ecs
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      branch-map: '{"develop":"dev"}'
+      lint-command: pnpm run lint
+      test-command: pnpm run test
+      bastion-id-ssm-param: /{project}/core/{stage}/bastion-id
+      db-endpoint-ssm-param: /{project}/core/{stage}/db-endpoint
+      db-secret-id: "{project}/{env}/core/database-credentials"
+      db-name: shop_db
+      db-schema: shop_schema
+      migration-command: pnpm run db:deploy
+      migration-verify-command: pnpm run db:status
+      ecs-cluster-ssm-param: /{project}/api/{stage}/ecs-cluster-name
+      ecs-service-ssm-param: /{project}/api/{stage}/ecs-service-name
+      ecr-repository: "shop-api-{env}"
+      dockerfile: apps/api/Dockerfile
+      docker-target: runner

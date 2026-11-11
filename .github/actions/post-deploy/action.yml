@@ -1,0 +1,50 @@
+name: post-deploy
+description: >
+  Optional project command that runs after the deploy (and, in environment-deploy, after the migration), with the
+  assumed role of the job and the contract variables. No database credentials reach it.
+inputs:
+  project:
+    description: Project prefix.
+    required: true
+  environment:
+    description: dev, stg or prod.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  aws-account-id:
+    description: Account id of the assumed role (output account-id of the aws-oidc composite). Exposed to the command as AWS_ACCOUNT_ID.
+    required: false
+    default: ""
+  post-deploy-command:
+    description: Command to run. Empty means nothing runs.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Derive the stage
+      id: ctx
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/derive-context.sh" >>"$GITHUB_OUTPUT"
+    # parity: H-09, H-12
+    - name: Post-deploy command
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.post-deploy-command }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+        AWS_ACCOUNT_ID: ${{ inputs.aws-account-id }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" "post-deploy"

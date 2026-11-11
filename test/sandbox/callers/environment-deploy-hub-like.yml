@@ -1,0 +1,37 @@
+# Fictional caller (project "shop"): environment deploy of a lambdalith whose database is reached with IAM.
+# Several branches map to one environment; the migration runs BEFORE the application stack (expand/contract).
+# Pin the workflow by FULL SHA of a release while testing in a sensitive environment (never @main).
+name: environment-deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        type: choice
+        options: [dev, stg, prod]
+        default: dev
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  environment-deploy:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@main
+    with:
+      project: shop
+      environment: ${{ inputs.environment }}
+      compute: lambda
+      role-arn: ${{ vars[format('AWS_ROLE_ARN_{0}', upper(inputs.environment))] }}
+      branch-map: '{"main":"prod","staging":"stg","develop":"dev","infra-deploy":"dev"}'
+      install-dirs: app,infra
+      node-version: "24"
+      lint-command: pnpm --dir app typecheck && pnpm --dir infra exec tsc --noEmit
+      test-database-image: postgres:17
+      test-command: pnpm --dir app test && INTEGRATION_DATABASE_URL="$TEST_DATABASE_URL" pnpm --dir app test:integration
+      db-access: iam-direct
+      db-endpoint-ssm-param: /shop/{stage}/database-endpoint-host
+      migrate-before-deploy: true
+      migration-command: node app/scripts/ci-db-migrate.mjs
+      migration-verify-command: node app/scripts/ci-db-status.mjs
+      # every stack of the stage except the OIDC and the env-manager ones (filter on 'oidc', never name the OIDC stack)
+      infra-deploy-command: >-
+        cd infra && pnpm exec cdk ls "Shop*-{stage}" | grep -viE "oidc|envmanager" |
+        xargs pnpm exec cdk deploy --exclusively --require-approval never
+      post-deploy-command: node app/scripts/verify-deploy.mjs
