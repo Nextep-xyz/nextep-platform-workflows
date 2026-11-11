@@ -94,13 +94,16 @@ runs:
         ENDPOINT_TEMPLATE: ${{ inputs.db-endpoint-ssm-param }}
       run: |
         set -euo pipefail
-        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        stage="$("$SCRIPTS/derive-context.sh" --print)"
         export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
         echo "stage=$stage" >>"$GITHUB_OUTPUT"
+        # resolve first, echo after: a failure inside `echo "$(...)"` is masked by the exit status of echo
         if [[ $DB_ACCESS == iam-direct ]]; then
-          echo "endpoint-param=$("$SCRIPTS/resolve-template.sh" db-endpoint-ssm-param "$ENDPOINT_TEMPLATE")" >>"$GITHUB_OUTPUT"
+          endpoint_param="$("$SCRIPTS/resolve-template.sh" db-endpoint-ssm-param "$ENDPOINT_TEMPLATE")"
+          echo "endpoint-param=$endpoint_param" >>"$GITHUB_OUTPUT"
         else
-          echo "secret-id=$("$SCRIPTS/resolve-template.sh" db-secret-id "$SECRET_TEMPLATE")" >>"$GITHUB_OUTPUT"
+          secret_id="$("$SCRIPTS/resolve-template.sh" db-secret-id "$SECRET_TEMPLATE")"
+          echo "secret-id=$secret_id" >>"$GITHUB_OUTPUT"
         fi
     # parity: P-CI-09, P-CI-14, P-EN-10, P-EN-11, P-EN-12, P-EN-13, H-10, H-11
     - name: Migrate

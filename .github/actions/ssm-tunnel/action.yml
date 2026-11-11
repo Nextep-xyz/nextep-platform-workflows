@@ -45,11 +45,13 @@ runs:
         ENDPOINT_TEMPLATE: ${{ inputs.db-endpoint-ssm-param }}
       run: |
         set -euo pipefail
-        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        stage="$("$SCRIPTS/derive-context.sh" --print)"
         export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
+        bastion_param="$("$SCRIPTS/resolve-template.sh" bastion-id-ssm-param "$BASTION_TEMPLATE")"
+        endpoint_param="$("$SCRIPTS/resolve-template.sh" db-endpoint-ssm-param "$ENDPOINT_TEMPLATE")"
         {
-          echo "bastion-param=$("$SCRIPTS/resolve-template.sh" bastion-id-ssm-param "$BASTION_TEMPLATE")"
-          echo "endpoint-param=$("$SCRIPTS/resolve-template.sh" db-endpoint-ssm-param "$ENDPOINT_TEMPLATE")"
+          echo "bastion-param=$bastion_param"
+          echo "endpoint-param=$endpoint_param"
         } >>"$GITHUB_OUTPUT"
     # parity: P-CI-09, P-EN-09
     - name: Install the pinned SSM plugin and the CA bundle

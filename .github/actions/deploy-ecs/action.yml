@@ -55,12 +55,15 @@ runs:
         REPOSITORY_TEMPLATE: ${{ inputs.ecr-repository }}
       run: |
         set -euo pipefail
-        stage="$("$SCRIPTS/derive-context.sh" | sed -n 's/^stage=//p')"
+        stage="$("$SCRIPTS/derive-context.sh" --print)"
         export TPL_PROJECT="$PROJECT" TPL_ENV="$ENVIRONMENT" TPL_STAGE="$stage"
+        cluster_param="$("$SCRIPTS/resolve-template.sh" ecs-cluster-ssm-param "$CLUSTER_TEMPLATE")"
+        service_param="$("$SCRIPTS/resolve-template.sh" ecs-service-ssm-param "$SERVICE_TEMPLATE")"
+        repository="$("$SCRIPTS/resolve-template.sh" ecr-repository "$REPOSITORY_TEMPLATE")"
         {
-          echo "cluster-param=$("$SCRIPTS/resolve-template.sh" ecs-cluster-ssm-param "$CLUSTER_TEMPLATE")"
-          echo "service-param=$("$SCRIPTS/resolve-template.sh" ecs-service-ssm-param "$SERVICE_TEMPLATE")"
-          echo "repository=$("$SCRIPTS/resolve-template.sh" ecr-repository "$REPOSITORY_TEMPLATE")"
+          echo "cluster-param=$cluster_param"
+          echo "service-param=$service_param"
+          echo "repository=$repository"
         } >>"$GITHUB_OUTPUT"
     # parity: P-CI-07
     - name: Check the runtime configuration exists
