@@ -38,12 +38,32 @@
 | `database is NOT aligned after migrating` | The verify command still fails after the migration | The job is red on purpose. Do not deploy; investigate the pending state |
 | `image '...' does not exist in ECR` | The rollback tag is wrong | Nothing was changed. Pick an existing tag |
 | `N required runtime item(s) are missing` | Missing SSM parameters or secrets | The message lists all of them |
+| `Telemetry not sent: ... HTTP 403 (workflow_not_allowed)` | The caller does not pin the workflow by tag: the collector only accepts `lego-*.yml@refs/tags/v…` in the token's `job_workflow_ref` | Call `@v1` (or `@vX.Y.Z`), never `@main`, a sha or a branch. The deploy was not affected |
+| `Telemetry not sent: ... (claim_mismatch \| repo_not_registered \| not_allowlisted \| unknown_environment)` | The collector does not know this repository, project or environment label | Register it in the collector's registry (a change in the collector's repository, not here) |
+| `Telemetry not sent: ... (schema_invalid)` | The payload does not match the collector's schema version | Compare `contracts/telemetry.schema.json` with the collector's; both repositories change together |
 | Gate refuses the event or the branch | `environment-deploy` ran from a branch outside `branch-map` or from a non-manual trigger | Run it manually from an authorised branch |
 
 Rollback (compute `ecs`): run `environment-deploy` with `image-tag` set to a previous tag. Nothing is built, the image must exist,
 the database is not migrated.
 
-## 4. Pending before the first release
+## 4. Telemetry (opt-in)
+
+Design and guards: `docs/specs/telemetria-dora/SPEC.md`. To report a project:
+
+1. Repository variables (never literals): `TELEMETRY_URL` (https base URL of the collector) and `TELEMETRY_AUDIENCE` (a plain slug, no dots; the collector's token audience).
+2. In the caller: `telemetry-url: ${{ vars.TELEMETRY_URL }}`, `telemetry-audience: ${{ vars.TELEMETRY_AUDIENCE }}`, the workflow pinned by tag (`@v1`) and the permissions the caller already needs (`id-token: write`, `contents: read`). See `test/sandbox/callers/cicd-telemetry.yml`.
+3. The collector must know the repository (its own registry). Until it does, the step shows `repo_not_registered` and nothing else is affected.
+
+**Reading a run.** The job `telemetry-phone-home` writes a summary: HTTP status, the collector's error code if any, the `idempotency_key`, the token's `job_workflow_ref` / `job_workflow_sha` (the only claims printed) and the payload.
+The token is never printed.
+
+**Resending.** The collector ties an event to the run that minted the token (run id, attempt and key must match the claims), so a saved JSON cannot be posted later from elsewhere.
+Resend with *Re-run job* `telemetry-phone-home` in the run: the job rebuilds the event with the new attempt and the stored stamps (`finished_at` does not move). Do it **only if the summary says the event was not accepted**:
+if the first one did arrive, attempt 2 counts again. `telemetry-unsent.json` (in `$RUNNER_TEMP/telemetry`) and the summary are the record of what did not arrive.
+
+**Never pin the caller to a sha or a branch if you want telemetry**; and never create `vX.Y` tags: the collector accepts `vX` and `vX.Y.Z` only.
+
+## 5. Pending before the first release
 
 Spikes S1, S3 and S4 and the dev integration runs (see `docs/adr/README.md` and `test/sandbox/README.md`), the rulesets of `main` and of
 the `v*` tags, the `INTERNAL_DENYLIST` organization secret, and the real maintainers team in `CODEOWNERS`. No `v1` tag exists: only the release workflow creates tags.

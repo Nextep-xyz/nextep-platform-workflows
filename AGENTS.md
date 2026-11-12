@@ -45,6 +45,7 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 - Los comandos del proyecto (lint, test, migrate, migrate-status, seed) son **inputs del caller**; los defaults son targets
   de `make` (`make lint`, `make test-ci`, `make migrate`, ...) y se sobreescriben por input (ver `contracts/` y
   `test/sandbox/callers/`). Si falta uno, el workflow falla nombrándolo.
+- Para reportar telemetría DORA: `telemetry-url` y `telemetry-audience` desde `vars` del repo (nunca literales) y el workflow por **tag** (`@v1` o `@vX.Y.Z`): el colector valida que el `job_workflow_ref` sea `lego-*.yml@refs/tags/v…`, así que con `@main`, un SHA o una rama responde 403 y la métrica se pierde (el pipeline sigue verde). Reenviar = *Re-run job* `telemetry-phone-home` (runbook §4).
 - Si el workflow no cubre lo que necesitas: **repórtalo** (qué input o paso falta). No copies YAML de otro sitio.
 - Nunca desactives ni relajes el gate de calidad/seguridad; no existe un input para eso, y no debe existir.
 
@@ -74,14 +75,14 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
   `docs/exceptions.yml`). Una entrada obsoleta o vencida falla el build.
 - **Reglas de los workflows (cada una tiene su gate):**
   - Toda `uses:` de terceros por **SHA**, no por tag. Referencias internas a composites por SHA (`release.sh`).
-  - Todo job declara `permissions:` mínimos; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `deploy`, `infra-deploy`, `post-deploy`).
+  - Todo job declara `permissions:` mínimos; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `deploy`, `infra-deploy`, `post-deploy`) y en `telemetry-phone-home`, que lo usa para un token del colector (nunca de una nube) con permisos exactos `{contents: read, id-token: write}`, sin checkout, sin comandos del caller y sin credenciales cloud.
   - **Un composite no referencia a otro composite** (gate G11): el SHA de release se escribe solo en los workflows. La cuenta AWS nunca es input ni literal (GH5): sale del output `account-id` de `aws-oidc`.
   - **Nunca** `${{ inputs.* }}` ni `${{ github.event.* }}` dentro de `run:`: pásalos por `env:`.
   - **Nunca** `pull_request_target` con código del PR, ni `NODE_TLS_REJECT_UNAUTHORIZED`.
   - Credenciales: `::add-mask::` antes del primer uso, solo en el `env:` del paso que las necesita, nunca en
     `$GITHUB_ENV`, nunca impresas.
-  - `continue-on-error: true` **solo** en telemetría y reporte; el gate, la migración y el deploy fallan de verdad.
-  - Telemetría: solo los campos del esquema (`additionalProperties: false`). Añadir un campo = nueva `schema_version`.
+  - `continue-on-error: true` **solo** en telemetría y reporte (en el job y en el paso); el gate, la migración y el deploy fallan de verdad.
+  - Telemetría: solo los campos de `contracts/telemetry.schema.json` (`additionalProperties: false`; su hash canónico lo fija el gate T1). Añadir un campo = nueva `schema_version` en este repo **y** en el colector. Nada de personas (`actor`) ni firmas con secreto compartido (el diseño anterior, sustituido). `telemetry-audience` es un slug sin puntos (T2): nunca una audiencia de una nube. Spec: `docs/specs/telemetria-dora/SPEC.md`.
 - **Scripts:** bash con `set -euo pipefail`, `shellcheck` limpio y un test `bats` con `aws`/`az`/`curl` falsos.
 - **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml` (existe, **sin ejecutar**; sus rulesets se configuran a mano en GitHub). **Nunca** crees, muevas ni
   borres un tag a mano. Un cambio incompatible = versión mayor.

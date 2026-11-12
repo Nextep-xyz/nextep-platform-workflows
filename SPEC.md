@@ -40,6 +40,13 @@ Los contratos máquina-legibles están en `contracts/`, la matriz de paridad en 
 - Invariantes con gate por disco (`test/gates/static-compute.bats`): todo valor de `compute` aceptado tiene un caller en `test/sandbox/callers/`; cada pieza de la etapa de BD se apaga para `static`. Callers de ejemplo: `environment-deploy-static.yml` y `cicd-static.yml`.
 - Guard recomendado para el consumidor: un `prepare-check-command` que verifique que la salida del build no esté vacía (un deploy que poda el destino lo vaciaría).
 
+**Enmienda Telemetría (v1.2.0, 2026-11-12).** El bloque `DORA-PLACEHOLDER` se activó: `telemetry-phone-home` reporta cada despliegue a un colector con un token OIDC. **§9 queda sustituido** por [`docs/specs/telemetria-dora/SPEC.md`](docs/specs/telemetria-dora/SPEC.md); manda ese documento. Lo que cambia:
+- Sin `TELEMETRY_TOKEN` ni firma HMAC (el diseño sustituido): autenticación por OIDC con la audiencia `telemetry-audience` (un slug, sin puntos). Inputs nuevos y opcionales `telemetry-url` y `telemetry-audience`; sin los dos, el job se omite. `telemetry-enabled` no existe (sustituido).
+- **Enmienda de §6.5/G2:** `id-token: write` también en `telemetry-phone-home`, solo con `{contents: read, id-token: write}`, sin checkout, sin comandos del caller y sin credenciales cloud.
+- Payload: sin `source.actor` ni `timing.lead_time_s`; con `source.tree_sha` y `source.ancestry[]` (una llamada a la API de commits); `target.environment` es la etiqueta tal cual. Esquema: `contracts/telemetry.schema.json`.
+- `continue-on-error` en el job y en el paso (G7 enmendado). El reenvío es *Re-run job* `telemetry-phone-home`, no reenviar un JSON.
+- El caller debe usar el workflow por **tag** (`@v1`, `@vX.Y.Z`): el colector valida el `job_workflow_ref`.
+
 ---
 
 ## 1. Problema y alcance
@@ -268,12 +275,12 @@ Para PR, otro caller con `run-deploy: false` y el job id `ci`. Los **required ch
 | `migration-command` | string | – | `make migrate` | |
 | `migration-verify-command` | string | – | `make migrate-status` | |
 | `migration-timeout-minutes` | number | – | `20` | |
-| `telemetry-enabled` | boolean | – | `true` | Ver §9 |
+| `telemetry-enabled` | boolean | – | `true` | **Sustituido:** no existe; ver §9 y la enmienda de Telemetría |
 | `telemetry-url` | string | – | `""` | Vacío = se omite con aviso (no falla) |
 
 | Secret | Req. | Uso |
 |---|---|---|
-| `TELEMETRY_TOKEN` | – | Clave HMAC del webhook de telemetría |
+| `TELEMETRY_TOKEN` | – | **Sustituido:** no existe; la telemetría usa OIDC (enmienda de Telemetría) |
 | `NPM_TOKEN` | – | Registry privado (p. ej. GitHub Packages para `@nextep/*`) |
 
 **No hay secretos cloud:** AWS/Azure entran por OIDC. **No existe** un input para desactivar el escaneo ni para
@@ -360,7 +367,7 @@ flowchart LR
 | `quality-and-security-gate` | — | siempre | `contents: read`, `pull-requests: write` | — | `gate-${{ github.workflow }}-${{ github.ref }}`, **cancela** |
 | `database-migration` | gate | `run-deploy` ∧ `migration-mode != none` ∧ `image-tag == ''` | + `id-token: write` | `inputs.environment` | `deploy-lock-<project>-<env>`, **no cancela** |
 | `deploy` | gate, migration | `always()` ∧ gate OK ∧ migration ∈ {OK, omitida} ∧ `run-deploy` | + `id-token: write` | `inputs.environment` | `deploy-lock-<project>-<env>`, **no cancela** |
-| `telemetry-phone-home` | gate, migration, deploy | **`always()`** | `contents: read`, `pull-requests: write` | — | — |
+| `telemetry-phone-home` | todos los demás | **`always()`** ∧ `telemetry-url` y `telemetry-audience` no vacíos ∧ no es un PR | `contents: read`, `id-token: write` (enmienda de Telemetría) | — | — |
 
 **`quality-and-security-gate`** (en este orden; la primera falla corta):
 1. `validate-inputs` (formatos, enums, combinaciones: p. ej. `ssm-tunnel` exige `bastion-id-ssm-param`).
@@ -514,7 +521,9 @@ Corrige y vuelve a empujar; este comentario se actualiza solo.
 
 ---
 
-## 9. Telemetría DORA ("phone home")
+## 9. Telemetría DORA ("phone home") — SUSTITUIDO por docs/specs/telemetria-dora/SPEC.md
+
+> **Esta sección es el diseño original (HMAC, `actor`, `lead_time_s`) y ya no describe lo que hacen los workflows.** Manda [`docs/specs/telemetria-dora/SPEC.md`](docs/specs/telemetria-dora/SPEC.md). Se conserva como historia de la decisión.
 
 Job `telemetry-phone-home`: `needs: [quality-and-security-gate, database-migration, deploy]`, `if: always()`,
 sus pasos con **`continue-on-error: true`**. Se omite si `telemetry-enabled=false`, si `telemetry-url` o el token
@@ -643,12 +652,12 @@ archivos, y **fallan si descubren 0 sujetos**. Corren en `self-ci.yml`, que es *
 | # | Guard | Test |
 |---|---|---|
 | G1 | El rol cloud solo se asume desde nuestros workflows (`job_workflow_ref`) | `docs/iam/` con trust policy de referencia + test bats que la valida con fixtures; **negativo en sandbox (S3):** un workflow propio asumiendo el rol recibe `AccessDenied` |
-| G2 | Permisos mínimos por job: todo job declara `permissions:`; `id-token: write` solo en `database-migration` y `deploy` | `test/gates/permissions.bats`: recorre `.github/workflows/lego-*.yml` |
+| G2 | Permisos mínimos por job: todo job declara `permissions:`; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `deploy`, `infra-deploy`, `post-deploy`) y en `telemetry-phone-home` con permisos exactos `{contents: read, id-token: write}` (enmienda de Telemetría) | `test/gates/permissions.bats`: recorre `.github/workflows/lego-*.yml` |
 | G3 | Toda `uses:` de terceros fijada por **SHA** (no tag) | `test/gates/pinned-actions.bats` sobre `.github/**` |
 | G4 | Los secretos no aparecen en logs: `add-mask` antes del primer uso | bats con `aws` falso: la salida capturada no contiene la contraseña |
 | G5 | Ningún `${{ inputs.* }}` ni `${{ github.event.* }}` dentro de `run:` | `test/gates/no-interpolation-in-run.bats` (parsea YAML con `yq`) |
 | G6 | El payload de telemetría respeta la lista blanca | Validación contra `telemetry.schema.json` con `additionalProperties: false` + fixture que añade un campo y **debe fallar** |
-| G7 | Telemetría nunca rompe el pipeline | Gate: el job `telemetry-phone-home` tiene `if: always()` y sus pasos `continue-on-error: true`; bats con `curl` que devuelve 500 ⇒ `exit 0` |
+| G7 | Telemetría nunca rompe el pipeline | Gate: el job `telemetry-phone-home` tiene `if: always()`, `continue-on-error: true` **en el job y en el paso** y un timeout corto; bats con `curl` que devuelve 500 ⇒ `exit 0` (enmendado: ver `docs/specs/telemetria-dora/SPEC.md` §4, G17 y T7) |
 | G8 | El túnel se cierra y tiene *timeout* | bats con `aws` falso: túnel muerto ⇒ falla con el log; el *teardown* corre aun si la migración falla |
 | G9 | Prohibido `NODE_TLS_REJECT_UNAUTHORIZED` y `sslmode=disable` | `test/gates/no-tls-bypass.bats` recorre `.github/` y `scripts/` |
 | G10 | No existe un input que desactive o relaje el gate | Gate sobre `contracts/*.yml`: ningún input llamado `skip-*`, `*-scan`, ni `trivy-severity` fuera de los valores permitidos |
@@ -829,7 +838,7 @@ ubicación del colector (es un input), orden de implementación de `deploy-mode`
 | **Q5** | ¿Canal de notificación (Slack/Teams) para el reporte? | Backlog | Fuera de alcance; bastan el comentario de PR y el resumen |
 | **Q6** | La plantilla de proyecto debe exponer `lint`, `build`, `migrate`, `migrate-status` en su `Makefile` | F1 | Cambio fuera de este repo; el sandbox los define mientras tanto |
 | **Q7** | ¿Callers con **`@v1`** (tag protegido) y no SHA, para que `job_workflow_ref` coincida con la trust policy? | F1 | Sí; el SHA solo si S1 admite comodín sobre la ref |
-| **Q8** | ¿`telemetry-enabled` desactivable por el consumidor? | F1 | Es un input; sin `telemetry-url` no se envía nada. La política la fija cada organización |
+| **Q8** | ¿`telemetry-enabled` desactivable por el consumidor? | F1 | **Sustituido:** el input no existe; sin `telemetry-url` y `telemetry-audience` no se envía nada. La política la fija cada organización |
 | **Q9** | Repo público: ¿se aceptan contribuciones externas o solo de mantenedores? | F0 | Solo mantenedores; PRs de terceros sujetos a revisión y a G13 |
 
 ---

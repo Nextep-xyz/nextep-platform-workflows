@@ -298,7 +298,7 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
 
 - **Objetivo:** el repo dice lo mismo que hace el código.
 - **Dependencias:** F3. **Toca:** `SPEC.md` (§0: enmienda "Telemetría"; §9 marcado **sustituido** con puntero a este spec; §6.5/G2 y §10/G7 enmendados), `AGENTS.md` (regla de `id-token`, `continue-on-error` en telemetría, callers por tag), `README.md` §3/§4, `docs/runbook.md` (colector caído, **reenvío = re-run del job**, alta de un consumidor, qué hacer ante `403 workflow_not_allowed`), `docs/adr/0004-telemetry-id-token-without-cloud-credentials.md` (decisión, audiencia, riesgo residual), este spec (§10 estado). **No toca:** código.
-- **Pruebas unitarias obligatorias:** G13 sobre los docs; un gate de coherencia por disco (la regla de `id-token` de `AGENTS.md` y del gate G2 nombran los mismos jobs; `SPEC.md §9` no promete `TELEMETRY_TOKEN`).
+- **Pruebas unitarias obligatorias:** G13 sobre los docs; **T10** (`release-pins.bats`: el patrón del colector y las formas de tag de `release.yml`); un gate de coherencia por disco (`doc-coherence.bats`) (la regla de `id-token` de `AGENTS.md` y del gate G2 nombran los mismos jobs; `SPEC.md §9` no promete `TELEMETRY_TOKEN`).
 - **Aceptación:** suite verde; `Select-String -Path README.md,AGENTS.md,SPEC.md -Pattern 'TELEMETRY_TOKEN'` solo aparece en el texto que declara el diseño anterior como sustituido.
 - **Rollback:** `git revert`.
 - **Checkpoint:** `docs: Document the OIDC telemetry flow, the id-token amendment and the resend procedure`.
@@ -374,7 +374,8 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
 | F1 | **Hecha** (commit de esta fase) |
 | F2 | **Hecha** (commit de esta fase; el gate se renombró a `dora-telemetry.bats`) |
 | F3 | **Hecha** (commit de esta fase) |
-| F4 – F6 | Pendientes |
+| F4 | **Hecha** (commit de esta fase; incluye T10 y `doc-coherence.bats`) |
+| F5 – F6 | Pendientes |
 
 **Registro del claim real (F6):** _vacío_ — `job_workflow_ref`: …, `job_workflow_sha`: …, run: …, HTTP: …
 

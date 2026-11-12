@@ -66,8 +66,8 @@ flowchart LR
 | `lego-azure-satellite` | Diseño | Satélites Core–Satélite en Azure. Fuera de P1 |
 
 Los dos de AWS son por **flujo**, no por cómputo (`SPEC.md §0`). Secuencia del rápido:
-**`quality-and-security-gate` → `database-migration` → `deploy`**. El job `telemetry-phone-home` está escrito pero
-**comentado** hasta que exista el colector (sección 4).
+**`quality-and-security-gate` → `database-migration` → `deploy`**. Un job final opcional, `telemetry-phone-home`,
+reporta el despliegue a un colector DORA si lo configuras (sección 4).
 
 **Minutos contados.** Cada job es un runner que repite checkout, toolchain e install. En `lego-aws-environment-deploy`,
 con `migrate-before-deploy: true` la migración y el `post-deploy-command` corren como **pasos** de `infra-deploy`
@@ -81,16 +81,20 @@ en el PR cuando falla un gate o termina un deploy, con enlace directo al log.
 
 ## 4. Telemetría DORA ("phone home"), sin sorpresas
 
-> **Hoy no se envía nada:** el bloque está comentado en ambos workflows (un gate falla si se descomenta).
+> **Opt-in:** sin `telemetry-url` **y** `telemetry-audience` el job se omite y no se envía nada.
 
-El último job de cada workflow envía **una métrica de despliegue** a un colector **que tú configuras**
-(`telemetry-url`; si lo dejas vacío, no se envía nada), siempre (`if: always()`), incluso si el deploy falló. Sirve para medir frecuencia de despliegue, lead time, tasa de
-fallos y tiempo de recuperación.
+El último job de cada workflow (`telemetry-phone-home`) envía **un evento de despliegue** a un colector **que tú configuras**
+(`telemetry-url` y `telemetry-audience`, ambos desde `vars` del repo), siempre (`always()`), incluso si el deploy falló. Sirve para medir
+frecuencia de despliegue, lead time, tasa de fallos y tiempo de recuperación. Se autentica con un **token OIDC de GitHub** (sin secretos
+compartidos); el job no hace checkout, no ejecuta comandos tuyos y no tiene credenciales de ninguna nube.
 
-- **Qué se envía:** repositorio, ambiente, resultado, duración por etapa, commit y tiempos. El payload exacto
-  está en `SPEC.md` y **se imprime en el resumen de cada run**: puedes ver lo que salió.
-- **Qué no se envía:** código, diffs, secretos, variables de entorno, logs.
-- **Nunca rompe un deploy:** si el colector no responde, el pipeline sigue en verde.
+- **Qué se envía:** repositorio, ambiente, resultado, duración por etapa, commit (con su árbol y su ancestría) y tiempos. El esquema exacto
+  está en `contracts/telemetry.schema.json` y el payload **se imprime en el resumen de cada run**: puedes ver lo que salió.
+- **Qué no se envía:** código, diffs, secretos, variables de entorno, logs, **ni quién lanzó el run**.
+- **Nunca rompe un deploy:** si el colector no responde, el pipeline sigue en verde (el job y su paso no fallan el run). Para reenviar:
+  *Re-run job* `telemetry-phone-home`.
+- **Llámalo por tag** (`@v1` o `@vX.Y.Z`): el colector solo acepta tokens emitidos por un workflow de este repo en un tag.
+- Diseño completo: `docs/specs/telemetria-dora/SPEC.md`.
 
 ---
 
