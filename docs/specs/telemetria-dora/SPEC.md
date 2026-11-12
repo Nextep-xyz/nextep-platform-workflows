@@ -242,7 +242,7 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
   1. los callers **deben** usar `@v1` o `@vX.Y.Z`; con `@main`, un SHA o una rama el colector responde `403 workflow_not_allowed` (la telemetría se pierde con aviso; el pipeline sigue verde). `AGENTS.md` y el runbook lo dicen (F4);
   2. nunca se crean tags `vX.Y`, ni se renombran los `lego-*.yml` (T10);
   3. el valor **real** del claim (con `v1` móvil) se registra en F6 y se entrega a la sesión del colector, que ajusta su `allowed-workflows` si difiere.
-- **Antes de liberar:** `git fetch --tags --prune` (el `v1` local está viejo), `main` empujada con `self-ci` verde, `RELEASE_TOKEN` vigente (caduca ≈ 2027-02-08) y el secret `INTERNAL_DENYLIST` presente (Q6/Q7).
+- **Antes de liberar:** `git fetch --tags --prune` (el `v1` local está viejo), `main` empujada con `self-ci` verde, `RELEASE_TOKEN` vigente (verificar su caducidad) y el secret `INTERNAL_DENYLIST` presente (Q6/Q7).
 
 ---
 
