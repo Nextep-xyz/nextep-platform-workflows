@@ -375,15 +375,28 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
 | F2 | **Hecha** (commit de esta fase; el gate se renombró a `dora-telemetry.bats`) |
 | F3 | **Hecha** (commit de esta fase) |
 | F4 | **Hecha** (commit de esta fase; incluye T10 y `doc-coherence.bats`) |
-| F5 – F6 | Pendientes |
+| F5 | **Hecha (2026-11-12)**: `v1.2.0` creado por `release.yml` (run 43279215413) sobre `main` = `707f1ed`; `v1` y `v1.2.0` apuntan al mismo tag object (commit `dc4fade`); `v1.1.1` intacto. El release incluye también el `compute: static` que `main` tenía sin publicar |
+| F6 | **Pendiente** (necesita al primer consumidor y al colector desplegado; no se puede cerrar desde este repo) |
+
+**Hand-off de F6 (texto para la sesión del primer consumidor; sin nombres internos):**
+
+```text
+Adopta telemetría en el caller del pipeline: el workflow por tag @v1 (ya es v1.2.0), y en el job que lo llama añade
+  telemetry-url: ${{ vars.TELEMETRY_URL }}
+  telemetry-audience: ${{ vars.TELEMETRY_AUDIENCE }}
+con las dos variables de REPO fijadas (url https base del colector; audiencia = slug sin puntos que el colector espera).
+Permisos del caller: los que ya tiene (id-token: write, contents: read, pull-requests: write); no hace falta nada más.
+El repo debe estar en el registro del colector. Haz un run main -> prod y, en el resumen del job telemetry-phone-home, copia:
+HTTP (esperado 202), idempotency_key, job_workflow_ref y job_workflow_sha. Entrégalos a quien cierra F6 (y a la sesión del colector).
+Si el resumen dice 403 workflow_not_allowed, el caller no está en un tag; si dice repo_not_registered, falta el alta en el registro.
+```
 
 **Registro del claim real (F6):** _vacío_ — `job_workflow_ref`: …, `job_workflow_sha`: …, run: …, HTTP: …
 
 **Prompt para retomar (copiar tal cual):**
 
 ```text
-Lee AGENTS.md, SPEC.md §0, docs/specs/telemetria-dora/SPEC.md y test/gates/dora-placeholder.bats (o dora-telemetry.bats si F2 ya cerró)
-de nextep-platform-workflows. Si el spec está APROBADO, ejecuta la primera fase pendiente de §7 respetando "Toca / No toca":
+Lee AGENTS.md, SPEC.md §0, docs/specs/telemetria-dora/SPEC.md y test/gates/dora-telemetry.bats de nextep-platform-workflows. Si el spec está APROBADO, ejecuta la primera fase pendiente de §7 respetando "Toca / No toca":
 tests y gates primero, en rojo y verificados en rojo; luego la implementación; una fase = un commit en main con el formato de §7.
 Este repo es PÚBLICO: nada interno. No toques el repo del colector ni el del consumidor (solo lectura). No crees ni muevas tags a mano:
 el release lo hace release.yml (F5, con confirmación). Si la realidad contradice el spec, detente y actualiza el spec primero.
