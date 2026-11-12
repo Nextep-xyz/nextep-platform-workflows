@@ -33,8 +33,9 @@ fetch "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux
 fetch "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-amd64" "$JQ_SHA256" "$dest/jq"
 chmod +x "$dest/yq" "$dest/jq"
 
-npm install --global --prefix "$dest/npm" "bats@${BATS_VERSION}" >/dev/null
+npm install --global --prefix "$dest/npm" "bats@${BATS_VERSION}" "ajv-cli@${AJV_CLI_VERSION}" >/dev/null
 ln -sf "$dest/npm/bin/bats" "$dest/bats"
+ln -sf "$dest/npm/bin/ajv" "$dest/ajv"
 
 if [[ -n "${GITHUB_PATH:-}" ]]; then echo "$dest" >>"$GITHUB_PATH"; fi
 echo "tools installed in $dest"

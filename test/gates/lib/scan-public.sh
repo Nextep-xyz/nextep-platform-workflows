@@ -67,6 +67,8 @@ for f in "${files[@]}"; do
       host="${url#*://}"
       host="${host%%[/:?#\"\')> \\]*}"
       [[ -z $host || $host == *'<'* || $host == *'$'* || $host == *'{'* || $host == *'%'* ]] && continue
+      # a host that STARTS like a regex (for example a JSON Schema pattern: [A-Za-z0-9.-]+) is not a host
+      [[ $host == '['* || $host == '('* || $host == '^'* || $host == '*'* ]] && continue
       host_allowed "$host" || hit "$f" "$n" "URL host outside the public allowlist"
     done < <(grep -oE 'https?://[^[:space:]]+' <<<"$line")
   done < <(grep -nE 'https?://' "$f" || true)

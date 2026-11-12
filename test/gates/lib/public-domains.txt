@@ -9,3 +9,4 @@ mermaid\.js\.org
 localhost
 .*\.example\.[a-z]+
 example\.[a-z]+
+json-schema\.org

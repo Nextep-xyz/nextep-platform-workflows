@@ -94,6 +94,16 @@ setup() {
   [[ "$output" == *"d.txt:1: URL host outside the public allowlist"* ]]
 }
 
+@test "G13 detector: a regex that starts like a host pattern is not a host, a real foreign host next to it still is" {
+  printf '%s\n' '"pattern": "^https://[A-Za-z0-9.-]+/[^\\s]*$"' >"$GATES_ROOT/schema.json"
+  run "$SCAN" "$GATES_ROOT"
+  [ "$status" -eq 0 ]
+  printf 'see https://intranet.%s/x\n' "corp.io" >"$GATES_ROOT/d.txt"
+  run "$SCAN" "$GATES_ROOT"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"d.txt:1: URL host outside the public allowlist"* ]]
+}
+
 @test "G13 detector: placeholders, example domains, hex digests and allowed hosts pass" {
   printf 'role: arn:aws:iam::<ACCOUNT>:role/x\nmail: a@example.com\nsha: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8\nsee https://github.com/example-org/x and https://example.com\n' >"$GATES_ROOT/ok.md"
   run "$SCAN" "$GATES_ROOT"

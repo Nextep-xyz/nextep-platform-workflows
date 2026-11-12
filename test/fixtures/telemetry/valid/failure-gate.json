@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "event_type": "deployment",
+  "idempotency_key": "example-org/example-service:9876543210:1",
+  "emitted_at": "2026-10-29T15:04:05Z",
+  "workflow": {
+    "name": "lego-aws-cicd",
+    "version_ref": "refs/tags/v1",
+    "sha": "0000000000000000000000000000000000000000",
+    "run_attempt": 1
+  },
+  "source": {
+    "organization": "example-org",
+    "repository": "example-org/example-service",
+    "ref": "refs/heads/main",
+    "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "tree_sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "ancestry": [
+      {
+        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "at": "2026-10-29T13:31:07Z"
+      },
+      {
+        "sha": "cccccccccccccccccccccccccccccccccccccccc",
+        "at": "2026-10-29T12:02:11Z"
+      }
+    ],
+    "event_name": "push",
+    "run_id": 9876543210,
+    "run_url": "https://github.com/example-org/example-service/actions/runs/9876543210"
+  },
+  "target": {
+    "project": "shop",
+    "cloud": "aws",
+    "environment": "prod",
+    "region": "us-east-2",
+    "service": "example-service",
+    "kind": "aws-lambda"
+  },
+  "result": {
+    "status": "failure",
+    "failed_stage": "gate",
+    "rollback": false,
+    "circuit_breaker_triggered": false
+  },
+  "stages": {
+    "gate": {
+      "status": "failure",
+      "duration_s": 40
+    },
+    "migration": {
+      "status": "skipped",
+      "duration_s": 0,
+      "mode": "none"
+    },
+    "deploy": {
+      "status": "skipped",
+      "duration_s": 0
+    }
+  },
+  "timing": {
+    "commit_at": "2026-10-29T13:31:07Z",
+    "started_at": "2026-10-29T14:55:10Z",
+    "finished_at": "2026-10-29T15:04:05Z",
+    "duration_s": 40
+  }
+}
