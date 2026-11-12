@@ -174,7 +174,7 @@ coincide con el esquema vigente del colector (lectura local). Cambiar un campo e
   `timeout-minutes: 5` el job y `2` el paso (un timeout de paso con `continue-on-error` cuenta como éxito); `curl --connect-timeout 5 --max-time 10`; hasta 3 intentos solo ante
   `429`/`5xx`/fallo de red (los `4xx` definitivos no se reintentan); el script termina con `exit 0` pase lo que pase.
 - **Qué hace con cada respuesta:** `202` aceptado y `200` duplicado = éxito; `401/403/422` = aviso con el `error.code` del colector y el `request_id` (nunca el token ni el cuerpo);
-  `413/429/5xx`/red = aviso; en todos los casos que no son éxito se escribe `$RUNNER_TEMP/telemetry-unsent.json` y se imprime en el resumen.
+  `413/429/5xx`/red = aviso; en todos los casos que no son éxito se escribe `$TELEMETRY_DIR/telemetry-unsent.json` (por defecto `$RUNNER_TEMP/telemetry/`) y se imprime en el resumen.
 - **Resumen del run** (`$GITHUB_STEP_SUMMARY`): estado HTTP, código del colector, `idempotency_key`, **`job_workflow_ref` y `job_workflow_sha` del token** (únicos claims que se imprimen)
   y el payload en un `<details>`. Es lo que cierra la verificación del valor real de `job_workflow_ref` en el colector (F6).
 - **El reenvío no puede ser "el JSON, días después, desde otro run":** el colector exige que `run_id`, `run_attempt` e `idempotency_key` coincidan con los claims del token, y un token solo
@@ -369,7 +369,8 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
 |---|---|
 | Spec | **APROBADO** (2026-11-12) |
 | F0 | **Hecha** (commit de esta fase) |
-| F1 – F6 | Pendientes |
+| F1 | **Hecha** (commit de esta fase) |
+| F2 – F6 | Pendientes |
 
 **Registro del claim real (F6):** _vacío_ — `job_workflow_ref`: …, `job_workflow_sha`: …, run: …, HTTP: …
 

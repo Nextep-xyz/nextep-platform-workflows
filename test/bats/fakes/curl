@@ -1,10 +1,59 @@
 #!/usr/bin/env bash
-# Fake curl: writes $FAKE_CURL_BODY to the --output file (no network).
+# Fake curl (no network).
+#
+# Legacy mode (no FAKE_CURL_ROUTES): writes $FAKE_CURL_BODY to the --output file and exits $FAKE_CURL_RC.
+#
+# Routed mode (telemetry tests): FAKE_CURL_ROUTES=<file> with one route per line:
+#     <url-substring>|<curl-exit-code>|<http-status>|<body-file>      (body-file may be empty: the body is "{}")
+#   - the first route whose substring is in the URL and that was not used yet answers; when all the matching routes were
+#     used, the last one repeats (so a retry sequence is "503 then 202" and a steady failure is one line);
+#   - no matching route => exit 7 and a message on stderr (a test that forgot a route fails loudly).
+# Always: logs "curl <args>" to $FAKE_LOG, appends the config read from `-K -` (headers, may hold a token) to
+# $FAKE_CURL_STDIN_LOG, copies the --data-binary @file to $FAKE_CURL_SENT, honours --output and -w '%{http_code}',
+# and, like the real one, exits 22 on a status >= 400 when --fail/--fail-with-body is given.
 echo "curl $*" >>"${FAKE_LOG:-/dev/null}"
-out=""
-while (($#)); do
-  if [[ $1 == --output ]]; then out=$2; fi
-  shift
+out="" write_out="" data="" url="" fail=0 stdin_cfg=0
+args=("$@")
+for ((i = 0; i < ${#args[@]}; i++)); do
+  a=${args[i]}
+  case $a in
+    --output | -o) out=${args[i + 1]:-} ;;
+    -w | --write-out) write_out=${args[i + 1]:-} ;;
+    --data-binary) data=${args[i + 1]:-} ;;
+    --fail | --fail-with-body) fail=1 ;;
+    -K | --config) [[ ${args[i + 1]:-} == - ]] && stdin_cfg=1 ;;
+    http://* | https://*) url=$a ;;
+  esac
 done
-[[ -n $out ]] && printf '%s' "${FAKE_CURL_BODY-fake}" >"$out"
-exit "${FAKE_CURL_RC:-0}"
+if ((stdin_cfg)); then cat >>"${FAKE_CURL_STDIN_LOG:-/dev/null}"; fi
+if [[ -n $data && $data == @* ]]; then cp "${data#@}" "${FAKE_CURL_SENT:-/dev/null}" 2>/dev/null || true; fi
+
+rc=${FAKE_CURL_RC:-0} code=${FAKE_CURL_CODE:-200} body_file=""
+if [[ -n ${FAKE_CURL_ROUTES:-} ]]; then
+  used="$FAKE_CURL_ROUTES.used"
+  touch "$used"
+  pick="" last=""
+  n=0
+  while IFS='|' read -r sub r c b || [[ -n ${sub:-} ]]; do
+    n=$((n + 1))
+    [[ -n ${sub:-} && $url == *"$sub"* ]] || continue
+    last="$n|$r|$c|$b"
+    if [[ -z $pick ]] && ! grep -qx "$n" "$used"; then
+      pick="$last"
+      echo "$n" >>"$used"
+    fi
+  done <"$FAKE_CURL_ROUTES"
+  pick=${pick:-$last}
+  if [[ -z $pick ]]; then
+    echo "fake curl: no route for $url" >&2
+    exit 7
+  fi
+  IFS='|' read -r _ rc code body_file <<<"$pick"
+fi
+
+if [[ -n $out && $out != /dev/null ]]; then
+  if [[ -n $body_file ]]; then cp "$body_file" "$out"; elif [[ -n ${FAKE_CURL_ROUTES:-} ]]; then printf '{}' >"$out"; else printf '%s' "${FAKE_CURL_BODY-fake}" >"$out"; fi
+fi
+if ((rc == 0 && fail && code >= 400)); then rc=22; fi
+if [[ -n $write_out ]]; then if ((rc != 0 && rc != 22)); then printf '000'; else printf '%s' "$code"; fi; fi
+exit "$rc"
