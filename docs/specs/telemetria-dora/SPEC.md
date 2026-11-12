@@ -370,7 +370,8 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
 | Spec | **APROBADO** (2026-11-12) |
 | F0 | **Hecha** (commit de esta fase) |
 | F1 | **Hecha** (commit de esta fase) |
-| F2 – F6 | Pendientes |
+| F2 | **Hecha** (commit de esta fase; el gate se renombró a `dora-telemetry.bats`) |
+| F3 – F6 | Pendientes |
 
 **Registro del claim real (F6):** _vacío_ — `job_workflow_ref`: …, `job_workflow_sha`: …, run: …, HTTP: …
 

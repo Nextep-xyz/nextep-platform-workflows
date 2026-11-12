@@ -56,3 +56,26 @@ check_dora() {
   done
   gate_finish G17
 }
+
+# T9 — every job of every reusable workflow stamps its start and its end (SPEC telemetria-dora 3.1): the telemetry job
+# cannot read durations from the API without asking callers for `actions: read`, so the jobs record them themselves.
+# Discovery is on disk: a job added tomorrow is subject to it the day it appears.
+@test "T9: every job stamps its start (first step) and its end (last step, always) and exposes started-at/finished-at" {
+  gate_require_tools yq jq
+  gate_discover_lego_workflows T9
+  local wf json job
+  for wf in "${GATE_SUBJECTS[@]}"; do
+    json="$(gate_json "$wf")"
+    while IFS= read -r job; do
+      jq -e --arg j "$job" '.jobs[$j].outputs["started-at"] == "${{ steps.stamp-start.outputs.epoch }}"' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job' does not expose started-at from the step 'stamp-start'"
+      jq -e --arg j "$job" '.jobs[$j].outputs["finished-at"] == "${{ steps.stamp-end.outputs.epoch }}"' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job' does not expose finished-at from the step 'stamp-end'"
+      jq -e --arg j "$job" '.jobs[$j].steps[0].id == "stamp-start"' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job': the first step is not the start stamp (id: stamp-start)"
+      jq -e --arg j "$job" '.jobs[$j].steps[-1].id == "stamp-end" and ((.jobs[$j].steps[-1].if // "") | tostring | contains("always()"))' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job': the last step is not the end stamp (id: stamp-end) with 'if: always()'"
+    done < <(jq -r '.jobs | keys[]' <<<"$json")
+  done
+  gate_finish T9
+}

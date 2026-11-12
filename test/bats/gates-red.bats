@@ -37,7 +37,7 @@ YAML
 
 @test "every workflow-driven gate fails with '0 subjects' when no lego-aws workflow exists" {
   local g
-  for g in permissions.bats deploy-lock.bats runner.bats dora-placeholder.bats contract-sync.bats rollback-and-event-guards.bats; do
+  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats; do
     run bats "$REPO_ROOT/test/gates/$g"
     [ "$status" -ne 0 ]
     [[ "$output" == *"0 subjects discovered"* ]] || { echo "$g: $output"; return 1; }
@@ -150,7 +150,7 @@ jobs:
     runs-on: ubuntu-latest
     steps: [{ run: echo ok }]
 YAML
-  red dora-placeholder.bats "lego-aws-bad.yml: the telemetry-phone-home job is ACTIVE"
+  red dora-telemetry.bats "lego-aws-bad.yml: the telemetry-phone-home job is ACTIVE"
   [[ "$output" == *"no DORA-PLACEHOLDER:BEGIN/END block found"* ]]
 }
 
@@ -166,7 +166,37 @@ jobs:
   b: 1
   # DORA-PLACEHOLDER:END
 YAML
-  red dora-placeholder.bats "lego-aws-bad.yml: line 8: the DORA block must be 100% commented"
+  red dora-telemetry.bats "lego-aws-bad.yml: line 8: the DORA block must be 100% commented"
+}
+
+@test "T9 red: a job without the stamps is named, with what is missing" {
+  cat >"$WF" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  stamped:
+    runs-on: ubuntu-latest
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
+    steps:
+      - { id: stamp-start, run: echo ok }
+      - { id: stamp-end, if: "${{ always() }}", run: echo ok }
+  bare:
+    runs-on: ubuntu-latest
+    steps: [{ run: echo ok }]
+  late-end:
+    runs-on: ubuntu-latest
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
+    steps:
+      - { id: stamp-start, run: echo ok }
+      - { id: stamp-end, run: echo ok }
+YAML
+  red dora-telemetry.bats "lego-aws-bad.yml: job 'bare' does not expose started-at from the step 'stamp-start'"
+  [[ "$output" == *"job 'bare': the first step is not the start stamp"* ]]
+  [[ "$output" == *"job 'late-end': the last step is not the end stamp (id: stamp-end) with 'if: always()'"* ]]
+  [[ "$output" != *"job 'stamped'"* ]]
 }
 
 @test "G18 red: a tag that is not in the matrix and a covered id with an input missing in the contract" {

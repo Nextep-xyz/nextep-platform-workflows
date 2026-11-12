@@ -193,7 +193,15 @@ jobs:
     concurrency:
       group: gate-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
     steps:
+      - name: Stamp the start
+        id: stamp-start
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
       - name: Check out the caller repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -226,6 +234,12 @@ jobs:
           test-database-image: ${{ inputs.test-database-image }}
           lint-command: ${{ inputs.lint-command }}
           test-command: ${{ inputs.test-command }}
+      - name: Stamp the end
+        id: stamp-end
+        if: ${{ always() }}
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
   infra-deploy:
     name: infra-deploy
@@ -238,7 +252,15 @@ jobs:
     concurrency:
       group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
       cancel-in-progress: false
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
     steps:
+      - name: Stamp the start
+        id: stamp-start
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
       - name: Check out the caller repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -329,6 +351,12 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           aws-account-id: ${{ steps.oidc.outputs.account-id }}
           post-deploy-command: ${{ inputs.post-deploy-command }}
+      - name: Stamp the end
+        id: stamp-end
+        if: ${{ always() }}
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
   database-migration:
     name: database-migration
@@ -341,7 +369,15 @@ jobs:
     concurrency:
       group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
       cancel-in-progress: false
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
     steps:
+      - name: Stamp the start
+        id: stamp-start
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
       - name: Check out the caller repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -395,6 +431,12 @@ jobs:
           migration-verify-command: ${{ inputs.migration-verify-command }}
           post-migrate-command: ${{ inputs.post-migrate-command }}
           migration-timeout-minutes: ${{ inputs.migration-timeout-minutes }}
+      - name: Stamp the end
+        id: stamp-end
+        if: ${{ always() }}
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
   post-deploy:
     name: post-deploy
@@ -413,7 +455,15 @@ jobs:
     concurrency:
       group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
       cancel-in-progress: false
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
     steps:
+      - name: Stamp the start
+        id: stamp-start
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
       - name: Check out the caller repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -441,6 +491,12 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           aws-account-id: ${{ steps.oidc.outputs.account-id }}
           post-deploy-command: ${{ inputs.post-deploy-command }}
+      - name: Stamp the end
+        id: stamp-end
+        if: ${{ always() }}
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
   # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
   # telemetry-phone-home:

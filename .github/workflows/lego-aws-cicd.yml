@@ -208,7 +208,15 @@ jobs:
     concurrency:
       group: gate-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
     steps:
+      - name: Stamp the start
+        id: stamp-start
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
       - name: Check out the caller repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -241,6 +249,12 @@ jobs:
           test-command: ${{ inputs.test-command }}
           test-postgres: ${{ inputs.test-postgres }}
           build-command: ${{ inputs.build-command }}
+      - name: Stamp the end
+        id: stamp-end
+        if: ${{ always() }}
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
   database-migration:
     name: database-migration
@@ -255,7 +269,15 @@ jobs:
     concurrency:
       group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
       cancel-in-progress: false
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
     steps:
+      - name: Stamp the start
+        id: stamp-start
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
       - name: Check out the caller repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -310,6 +332,12 @@ jobs:
           migration-verify-command: ${{ inputs.migration-verify-command }}
           post-migrate-command: ${{ inputs.post-migrate-command }}
           migration-timeout-minutes: ${{ inputs.migration-timeout-minutes }}
+      - name: Stamp the end
+        id: stamp-end
+        if: ${{ always() }}
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
   deploy:
     name: deploy
@@ -326,7 +354,15 @@ jobs:
     concurrency:
       group: deploy-lock-${{ inputs.project }}-${{ inputs.environment }}
       cancel-in-progress: false
+    outputs:
+      started-at: ${{ steps.stamp-start.outputs.epoch }}
+      finished-at: ${{ steps.stamp-end.outputs.epoch }}
     steps:
+      - name: Stamp the start
+        id: stamp-start
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
       - name: Check out the caller repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -388,6 +424,12 @@ jobs:
           dockerfile: ${{ inputs.dockerfile }}
           docker-context: ${{ inputs.docker-context }}
           docker-target: ${{ inputs.docker-target }}
+      - name: Stamp the end
+        id: stamp-end
+        if: ${{ always() }}
+        run: |
+          epoch="$(date -u +%s)"
+          echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
   # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
   # telemetry-phone-home:
