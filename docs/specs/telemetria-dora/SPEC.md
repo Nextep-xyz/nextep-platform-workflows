@@ -203,7 +203,7 @@ Los gates **recorren el árbol** (`find`/`yq`), fallan con 0 sujetos y se **veri
 | **T6** | El token no se filtra: `::add-mask::` antes del primer uso; ni stdout, ni el resumen, ni `telemetry-unsent.json`, ni outputs lo contienen; solo se imprimen `job_workflow_ref`/`job_workflow_sha` | `telemetry-send.bats` | `echo "$token"` |
 | **T7** (era G7) | La telemetría nunca rompe: `curl` con 500, 4xx, timeout y fallo DNS ⇒ `exit 0` y `telemetry-unsent.json`; job y paso con `continue-on-error: true` | `telemetry-send.bats` + `dora-telemetry.bats` + `fail-hard.bats` ampliado al **nivel de job** | quitar `continue-on-error` del job |
 | **T8** | El job de telemetría no ejecuta código del caller ni toca la nube: sin `checkout`, sin `run:`, sin `aws-oidc`/`configure-aws-credentials`/`azure/login`, único `uses` = composite interno | `dora-telemetry.bats` | añadir un `checkout` |
-| **T9** | Los stamps existen: **todo** job de ambos workflows declara los outputs `started-at`/`finished-at` y su último paso lleva `if: always()` | `dora-telemetry.bats` (por disco) | quitar un stamp |
+| **T9** | Los stamps existen: **todo** job de ambos workflows (salvo el de telemetría, que es el observador y tiene un único paso) declara los outputs `started-at`/`finished-at` y su último paso lleva `if: always()` | `dora-telemetry.bats` (por disco) | quitar un stamp |
 | **T10** | Naming de release compatible con el colector: `release.yml` solo crea `vX.Y.Z` y `vX`; el patrón del colector acepta `v1`, `v1.2.0` y **rechaza** `v1.2`, `main` y un SHA | `test/gates/release-pins.bats` ampliado | aceptar `vX.Y` en `release.yml` |
 | **T11** | `job_workflow_ref`/`version_ref` se extraen del token (fixtures: `@refs/tags/v1`, `@refs/tags/v1.2.0`, `@refs/heads/main`); con un token ilegible o sin esos claims **no se envía** | `telemetry-send.bats` | construirlos desde `GITHUB_WORKFLOW_REF` (es el del caller) |
 | **T12** | `telemetry-url` exige el esquema `https`, sin credenciales embebidas ni espacios; el POST va a `${url%/}/v1/deployments` | `validate-inputs.bats` + `telemetry-send.bats` | aceptar el esquema `http` |
@@ -227,6 +227,8 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
 | D8 | `target.service` = nombre del repo | Sin nombre de servicio común a lambda/ecs/static | Nuevo input `telemetry-service` (se añade luego, aditivo, si hace falta) |
 | D9 | `job` con `continue-on-error: true` | Un fallo de infraestructura del runner no pone rojo el run | Solo a nivel de paso |
 | D10 | Renombrar el gate a `dora-telemetry.bats` con `git mv` | Un fichero "placeholder" sobre un job activo es deuda de conocimiento tácito | Mantener el nombre |
+| D11 | `validate-inputs` **falla** ante un `telemetry-url`/`telemetry-audience` no vacío e inválido (con uno solo de los dos: aviso, telemetría apagada) | Es un error de configuración determinista, no un fallo del colector; y cierra el vector de §3.2 con ruido en vez de en silencio | Ignorarlo en silencio |
+| D12 | `continue-on-error` y `timeout-minutes` del paso viven en el `uses` del workflow, no dentro del composite | El gate G-COE prohíbe `continue-on-error` en pasos de composites y el composite no admite `timeout-minutes`; los scripts ya terminan en `exit 0` | Ponerlos dentro del composite |
 
 ---
 
@@ -371,7 +373,8 @@ Corolarios (por disco): descubrimiento ≥ 1 sujeto; excepciones declaradas dos 
 | F0 | **Hecha** (commit de esta fase) |
 | F1 | **Hecha** (commit de esta fase) |
 | F2 | **Hecha** (commit de esta fase; el gate se renombró a `dora-telemetry.bats`) |
-| F3 – F6 | Pendientes |
+| F3 | **Hecha** (commit de esta fase) |
+| F4 – F6 | Pendientes |
 
 **Registro del claim real (F6):** _vacío_ — `job_workflow_ref`: …, `job_workflow_sha`: …, run: …, HTTP: …
 

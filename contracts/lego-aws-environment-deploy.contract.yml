@@ -126,20 +126,17 @@ inputs:
   test-command:
     type: string
     default: ""
-  # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
-  # telemetry-url: { type: string, default: "" }
-  # DORA-PLACEHOLDER:END
+  telemetry-url:
+    type: string
+    default: ""
+  telemetry-audience:
+    type: string
+    default: ""
 secrets: {}
-# DORA-PLACEHOLDER:BEGIN
-# secrets:
-#   TELEMETRY_TOKEN: { required: false }
-# DORA-PLACEHOLDER:END
 outputs: {}
 jobs:
   - quality-and-security-gate
   - infra-deploy
   - database-migration
   - post-deploy
-  # DORA-PLACEHOLDER:BEGIN
-  # - telemetry-phone-home
-  # DORA-PLACEHOLDER:END
+  - telemetry-phone-home

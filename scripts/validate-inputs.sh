@@ -241,6 +241,22 @@ if [[ $flow == cicd ]]; then
   done
 fi
 
+# --- telemetry (SPEC telemetria-dora): both inputs are optional; when set they must be valid (T2, T12) ----------------------
+# The audience is a plain slug so this job cannot be used to mint a token for a cloud provider; the URL is https without
+# credentials. The telemetry composite checks both again: its job runs even when this gate fails.
+# shellcheck source=lib/telemetry.sh
+source "$here/lib/telemetry.sh"
+t_url="$(val telemetry-url)"
+t_aud="$(val telemetry-audience)"
+if [[ -n $t_url ]] && ! telemetry_valid_url "$t_url"; then
+  err "input 'telemetry-url' must be an https URL (host, optional port and path) without credentials, query or spaces"
+fi
+if [[ -n $t_aud ]] && ! telemetry_valid_audience "$t_aud"; then
+  err "input 'telemetry-audience' must be a plain lower-case slug ([a-z0-9-], 3 to 63 characters, no dots, colons or slashes)"
+fi
+if [[ -n $t_url && -z $t_aud ]]; then warn "telemetry-url is set but telemetry-audience is empty: telemetry stays off"; fi
+if [[ -z $t_url && -n $t_aud ]]; then warn "telemetry-audience is set but telemetry-url is empty: telemetry stays off"; fi
+
 # --- verdict ---------------------------------------------------------------------------------------------------------
 if ((${#errs[@]} > 0)); then
   for e in "${errs[@]}"; do printf '::error title=Invalid inputs::%s\n' "$e" >&2; done

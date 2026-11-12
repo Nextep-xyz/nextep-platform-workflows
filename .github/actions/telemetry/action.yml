@@ -1,0 +1,73 @@
+name: telemetry
+description: >
+  Reports the deployment event to a DORA collector with an OIDC token (audience = the input). Runs no code of the caller,
+  holds no cloud credentials and NEVER fails: every problem ends in a warning and a summary. See docs/specs/telemetria-dora/SPEC.md.
+inputs:
+  telemetry-url:
+    description: Base URL (https) of the collector. Empty means telemetry is off.
+    required: false
+    default: ""
+  audience:
+    description: Audience of the OIDC token, a plain lower-case slug. Empty means telemetry is off.
+    required: false
+    default: ""
+  flow:
+    description: cicd or environment-deploy.
+    required: true
+  project:
+    description: Project slug.
+    required: true
+  environment:
+    description: Environment label, sent as received.
+    required: true
+  aws-region:
+    description: AWS region.
+    required: true
+  compute:
+    description: lambda, ecs or static.
+    required: true
+  db-access:
+    description: ssm-tunnel or iam-direct (decides the migration mode of the event).
+    required: false
+    default: ""
+  image-tag:
+    description: Image tag of a rollback (environment-deploy). Empty otherwise.
+    required: false
+    default: ""
+  run-deploy:
+    description: false means the run was gate-only and no event is sent.
+    required: false
+    default: "true"
+  needs-json:
+    description: toJSON(needs) of the telemetry job (results and the start/end stamps of every job).
+    required: true
+  github-token:
+    description: The job token (contents read), for the commits endpoint.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Fetch the commit data
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        "$SCRIPTS/telemetry-fetch-commits.sh"
+    - name: Send the deployment event
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        TELEMETRY_URL: ${{ inputs.telemetry-url }}
+        TELEMETRY_AUDIENCE: ${{ inputs.audience }}
+        FLOW: ${{ inputs.flow }}
+        INPUT_PROJECT: ${{ inputs.project }}
+        INPUT_ENVIRONMENT: ${{ inputs.environment }}
+        INPUT_AWS_REGION: ${{ inputs.aws-region }}
+        INPUT_COMPUTE: ${{ inputs.compute }}
+        INPUT_DB_ACCESS: ${{ inputs.db-access }}
+        INPUT_IMAGE_TAG: ${{ inputs.image-tag }}
+        INPUT_RUN_DEPLOY: ${{ inputs.run-deploy }}
+        NEEDS_JSON: ${{ inputs.needs-json }}
+      run: |
+        "$SCRIPTS/telemetry-send.sh"

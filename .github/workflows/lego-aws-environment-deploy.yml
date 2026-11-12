@@ -176,13 +176,14 @@ on:
         description: "Test command, run before anything is deployed. Empty skips it. TEST_DATABASE_URL is set when test-database-image is."
         type: string
         default: ""
-      # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
-      # telemetry-url: { type: string, default: "" }
-      # DORA-PLACEHOLDER:END
-    # DORA-PLACEHOLDER:BEGIN
-    # secrets:
-    #   TELEMETRY_TOKEN: { required: false }
-    # DORA-PLACEHOLDER:END
+      telemetry-url:
+        description: "Base URL (https) of the deployment-telemetry collector. Empty disables telemetry. Set it from a repository variable, never as a literal."
+        type: string
+        default: ""
+      telemetry-audience:
+        description: "Audience of the OIDC token requested for the collector: a plain lower-case slug (no dots). Empty disables telemetry. Set it from a repository variable."
+        type: string
+        default: ""
 
 jobs:
   quality-and-security-gate:
@@ -498,22 +499,33 @@ jobs:
           epoch="$(date -u +%s)"
           echo "epoch=$epoch" >> "$GITHUB_OUTPUT"
 
-  # DORA-PLACEHOLDER:BEGIN  (inactive until the collector endpoint exists)
-  # telemetry-phone-home:
-  #   name: telemetry-phone-home
-  #   needs: [quality-and-security-gate, infra-deploy, database-migration, post-deploy]
-  #   if: always()
-  #   runs-on: ubuntu-latest
-  #   permissions: { contents: read }
-  #   steps:
-  #     - name: Send deployment event to the DORA collector
-  #       continue-on-error: true            # telemetry never breaks the pipeline
-  #       uses: Nextep-xyz/nextep-platform-workflows/.github/actions/telemetry@<SHA>
-  #       with:
-  #         telemetry-url: ${{ inputs.telemetry-url }}      # empty = nothing is sent
-  #         telemetry-token: ${{ secrets.TELEMETRY_TOKEN }}
-  #         project: ${{ inputs.project }}
-  #         environment: ${{ inputs.environment }}
-  #         flow: environment-deploy
-  #         results: ${{ toJSON(needs) }}
-  # DORA-PLACEHOLDER:END
+  telemetry-phone-home:
+    name: telemetry-phone-home
+    needs: [quality-and-security-gate, infra-deploy, database-migration, post-deploy]
+    if: >-
+      ${{ always() && inputs.telemetry-url != '' && inputs.telemetry-audience != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true # telemetry never turns a run red
+    # Amendment of the id-token rule (SPEC telemetria-dora 3.2): this job mints a token for the collector only. It checks out
+    # nothing, runs no caller command and holds no cloud credentials.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Report the deployment to the collector
+        continue-on-error: true
+        timeout-minutes: 2
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/telemetry@main
+        with:
+          telemetry-url: ${{ inputs.telemetry-url }}
+          audience: ${{ inputs.telemetry-audience }}
+          github-token: ${{ github.token }}
+          needs-json: ${{ toJSON(needs) }}
+          flow: environment-deploy
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          compute: ${{ inputs.compute }}
+          db-access: ${{ inputs.db-access }}
+          image-tag: ${{ inputs.image-tag }}

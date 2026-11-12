@@ -1,0 +1,21 @@
+# Fictional caller (project "shop", compute lambda) that reports its deployments to a DORA collector.
+# Both values come from repository variables, never literals. The collector only accepts tokens whose job_workflow_ref is a
+# lego-* workflow pinned by TAG, so a reporting caller uses @v1 (or @vX.Y.Z), not @main and not a commit sha.
+name: cicd
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**/*.md", "docs/**"]
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@v1
+    with:
+      project: shop
+      environment: prod
+      compute: lambda
+      role-arn: ${{ vars.AWS_ROLE_ARN_PROD }}
+      build-command: pnpm run build
+      deploy-command: pnpm --filter infra run deploy:ci
+      telemetry-url: ${{ vars.TELEMETRY_URL }}
+      telemetry-audience: ${{ vars.TELEMETRY_AUDIENCE }}

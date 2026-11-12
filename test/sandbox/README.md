@@ -14,6 +14,7 @@ of a scratch repository in a **dev** account, set the repository variable `AWS_R
 | [`environment-deploy-hub-like.yml`](callers/environment-deploy-hub-like.yml) | `lego-aws-environment-deploy`, `migrate-before-deploy`, `post-deploy-command`, several branches to one environment |
 | [`environment-deploy-static.yml`](callers/environment-deploy-static.yml) | `lego-aws-environment-deploy`, `compute: static` (single-page app: build as prepare, guard, deploy, verification; no database stage) |
 | [`cicd-static.yml`](callers/cicd-static.yml) | `lego-aws-cicd`, `compute: static` |
+| [`cicd-telemetry.yml`](callers/cicd-telemetry.yml) | `lego-aws-cicd` reporting to a DORA collector: `telemetry-url`/`telemetry-audience` from variables, pinned by tag (`@v1`) |
 
 **Status: NOT VERIFIED.** Nothing here has been run against a real account. The dev integration runs of the spec
 (`SPEC.md` P1.3/P1.4) are pending until a dev AWS account is available.

@@ -12,6 +12,10 @@ load 'lib/gates'
     while IFS= read -r n; do
       gate_violation "$f" "step '$n' sets continue-on-error: true (allowed only in telemetry and reporting)"
     done < <(gate_json "$f" | jq -r '[(.jobs // {} | to_entries[] | select(.key | test("telemetry|report") | not) | .value.steps // [] | .[]), ((.runs.steps // [])[])] | .[] | select(.["continue-on-error"] == true) | .name // "(unnamed)"')
+    # the same rule at JOB level: a job-level continue-on-error would let a failed gate, migration or deploy leave the run green
+    while IFS= read -r n; do
+      gate_violation "$f" "job '$n' sets continue-on-error: true (allowed only in telemetry and reporting jobs)"
+    done < <(gate_json "$f" | jq -r '(.jobs // {}) | to_entries[] | select(.key | test("telemetry|report") | not) | select(.value["continue-on-error"] == true) | .key')
   done
   gate_finish G-COE
 }

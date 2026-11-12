@@ -142,19 +142,7 @@ jobs: []
   [[ "$output" == *"lego-aws-orphan.contract.yml: contract without a workflow"* ]]
 }
 
-@test "G17 red: an ACTIVE telemetry job is named" {
-  cat >"$WF" <<'YAML'
-on: { workflow_call: {} }
-jobs:
-  telemetry-phone-home:
-    runs-on: ubuntu-latest
-    steps: [{ run: echo ok }]
-YAML
-  red dora-telemetry.bats "lego-aws-bad.yml: the telemetry-phone-home job is ACTIVE"
-  [[ "$output" == *"no DORA-PLACEHOLDER:BEGIN/END block found"* ]]
-}
-
-@test "G17 red: active code inside the markers is named with its line" {
+@test "G17 red: a workflow without the telemetry job, or with a marker left, is named" {
   cat >"$WF" <<'YAML'
 on: { workflow_call: {} }
 jobs:
@@ -162,11 +150,126 @@ jobs:
     runs-on: ubuntu-latest
     steps: [{ run: echo ok }]
   # DORA-PLACEHOLDER:BEGIN
-  # telemetry-phone-home: telemetry-url TELEMETRY_TOKEN
-  b: 1
+  # telemetry-phone-home:
   # DORA-PLACEHOLDER:END
 YAML
-  red dora-telemetry.bats "lego-aws-bad.yml: line 8: the DORA block must be 100% commented"
+  red dora-telemetry.bats "lego-aws-bad.yml: has no 'telemetry-phone-home' job"
+  [[ "$output" == *"lego-aws-bad.yml: a DORA-PLACEHOLDER marker is left"* ]]
+}
+
+# a workflow with a telemetry job that breaks every rule of G17 at once
+bad_telemetry_workflow() {
+  cat >"$WF" <<'YAML'
+on:
+  workflow_call:
+    inputs:
+      run-deploy: { type: boolean, default: true }
+    secrets:
+      TELEMETRY_TOKEN: { required: false }
+jobs:
+  quality-and-security-gate:
+    name: quality-and-security-gate
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps: [{ run: echo ok }]
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps: [{ run: echo ok }]
+  telemetry-phone-home:
+    name: telemetry-phone-home
+    needs: [quality-and-security-gate]
+    if: ${{ inputs.telemetry-url != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions: { contents: read, id-token: write, pull-requests: write }
+    environment: prod
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: example-org/nextep-platform-workflows/.github/actions/aws-oidc@main
+      - run: echo hi
+YAML
+}
+
+@test "G17 red: every broken rule of the telemetry job is named (needs, if, continue-on-error, timeout, permissions, inputs, secret)" {
+  bad_telemetry_workflow
+  red dora-telemetry.bats "lego-aws-bad.yml: 'telemetry-phone-home' must need EVERY other job"
+  [[ "$output" == *"the 'if' of 'telemetry-phone-home' must contain always()"* ]]
+  [[ "$output" == *"the 'if' of 'telemetry-phone-home' must be off when telemetry-audience is empty"* ]]
+  [[ "$output" == *"the 'if' of 'telemetry-phone-home' must require inputs.run-deploy"* ]]
+  [[ "$output" == *"must set continue-on-error: true at job level"* ]]
+  [[ "$output" == *"must set timeout-minutes <= 5"* ]]
+  [[ "$output" == *"permissions must be exactly {contents: read, id-token: write}"* ]]
+  [[ "$output" == *"input telemetry-url must exist"* ]]
+  [[ "$output" == *"input telemetry-audience must exist"* ]]
+  [[ "$output" == *"a TELEMETRY secret is declared"* ]]
+}
+
+@test "T8 red: a checkout, a cloud role, a run step and an environment in the telemetry job are named" {
+  bad_telemetry_workflow
+  red dora-telemetry.bats "lego-aws-bad.yml: 'telemetry-phone-home' must have exactly one step"
+  [[ "$output" == *"has a 'run:' step"* ]]
+  [[ "$output" == *"may only use the internal telemetry composite"* ]]
+  [[ "$output" == *"checks out code or assumes a cloud role"* ]]
+  [[ "$output" == *"declares an environment"* ]]
+  [[ "$output" == *"the step of 'telemetry-phone-home' must set continue-on-error: true"* ]]
+}
+
+@test "G2 red: the telemetry job holding id-token with extra permissions is named" {
+  bad_telemetry_workflow
+  red permissions.bats "job 'telemetry-phone-home' may hold id-token: write only with exactly {contents: read, id-token: write}"
+}
+
+@test "T0 red: a shared secret or an HMAC in a script is named with its line" {
+  cat >"$FX/scripts/send.sh" <<'SH'
+#!/usr/bin/env bash
+sig="$(openssl dgst -sha256 -hmac "$TELEMETRY_TOKEN" payload.json)"
+SH
+  red dora-telemetry.bats "scripts/send.sh: line 2: a shared secret or an HMAC signature"
+}
+
+@test "T3 red: the actor in a telemetry script or composite is named; a comment saying 'no actor' is not" {
+  mkdir -p "$FX/.github/actions/telemetry"
+  printf '%s\n' '#!/usr/bin/env bash' '# there is no actor in the payload' 'echo "$GITHUB_ACTOR"' >"$FX/scripts/telemetry-build.sh"
+  printf 'runs:\n  using: composite\n  steps: []\n' >"$FX/.github/actions/telemetry/action.yml"
+  red dora-telemetry.bats "scripts/telemetry-build.sh: line 3: refers to the actor"
+  [[ "$output" != *"scripts/telemetry-build.sh: line 2:"* ]]
+}
+
+@test "T13 red: a caller without id-token and the absence of a reporting caller are named" {
+  mkdir -p "$FX/test/sandbox/callers"
+  printf 'name: c\non: push\npermissions: { contents: read }\njobs:\n  j:\n    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main\n    with: { project: shop }\n' >"$FX/test/sandbox/callers/plain.yml"
+  red dora-telemetry.bats "test/sandbox/callers/plain.yml: the caller does not grant id-token: write"
+  [[ "$output" == *"no sandbox caller reports telemetry"* ]]
+  printf 'name: c\non: push\npermissions: { id-token: write }\njobs:\n  j:\n    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main\n    with:\n      telemetry-url: https://collector.example.com\n      telemetry-audience: literal-audience\n' >"$FX/test/sandbox/callers/literal.yml"
+  red dora-telemetry.bats "test/sandbox/callers/literal.yml: telemetry-url must come from a repository variable"
+  [[ "$output" == *"telemetry-audience must come from a repository variable"* ]]
+  [[ "$output" == *"must pin the workflow by tag"* ]]
+}
+
+@test "G17 red: a contract without the telemetry inputs or job, or that still declares a secret, is named" {
+  printf 'workflow: lego-aws-bad\ninputs:\n  project: { type: string }\nsecrets:\n  TELEMETRY_TOKEN: { required: false }\njobs:\n  - deploy\n' >"$FX/contracts/lego-aws-bad.contract.yml"
+  red dora-telemetry.bats "lego-aws-bad.contract.yml: telemetry-url and telemetry-audience must be listed as inputs"
+  [[ "$output" == *"the job 'telemetry-phone-home' is not listed"* ]]
+  [[ "$output" == *"declares secrets: the telemetry has none (OIDC)"* ]]
+}
+
+@test "G-COE red: a job-level continue-on-error on a non-telemetry job is named, on the telemetry job it is not" {
+  cat >"$WF" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps: [{ run: echo ok }]
+  telemetry-phone-home:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps: [{ run: echo ok }]
+YAML
+  red fail-hard.bats "lego-aws-bad.yml: job 'deploy' sets continue-on-error: true"
+  [[ "$output" != *"job 'telemetry-phone-home' sets continue-on-error"* ]]
 }
 
 @test "T9 red: a job without the stamps is named, with what is missing" {

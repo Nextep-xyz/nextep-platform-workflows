@@ -453,3 +453,51 @@ run_validate() { run "$SCRIPTS/validate-inputs.sh" "$1"; }
   [ "$status" -eq 1 ]
   [[ "$output" == *"lambda, ecs or static"* ]]
 }
+
+# ---- telemetry inputs (SPEC telemetria-dora, T2 and T12) --------------------------------------------------------------
+
+@test "telemetry: both inputs valid (or both empty) pass in both flows" {
+  cicd_lambda_env
+  export INPUT_TELEMETRY_URL=https://collector.example.com INPUT_TELEMETRY_AUDIENCE=example-audience
+  run_validate cicd
+  [ "$status" -eq 0 ]
+  env_deploy_env
+  export INPUT_TELEMETRY_URL=https://collector.example.com/base INPUT_TELEMETRY_AUDIENCE=example-audience-2
+  run_validate environment-deploy
+  [ "$status" -eq 0 ]
+  cicd_lambda_env
+  export INPUT_TELEMETRY_URL="" INPUT_TELEMETRY_AUDIENCE=""
+  run_validate cicd
+  [ "$status" -eq 0 ]
+}
+
+@test "T2: an audience that is not a plain slug is rejected, naming the input (no cloud default audience can get through)" {
+  local aud
+  for aud in "sts.amazonaws.com" "api://AzureADTokenExchange" "Upper" "a b" "ab" "x&y"; do
+    cicd_lambda_env
+    export INPUT_TELEMETRY_URL=https://collector.example.com INPUT_TELEMETRY_AUDIENCE="$aud"
+    run_validate cicd
+    [ "$status" -eq 1 ] || { echo "accepted audience '$aud'"; return 1; }
+    [[ "$output" == *"input 'telemetry-audience'"* ]]
+  done
+}
+
+@test "T12: a URL that is not https, or carries credentials, a query or spaces, is rejected, naming the input" {
+  local url cred=user:pw@
+  for url in "http://collector.example.com" "https://${cred}collector.example.com" "https://collector.example.com?x=1" "collector.example.com" "https://collector.example.com/a b"; do
+    cicd_lambda_env
+    export INPUT_TELEMETRY_URL="$url" INPUT_TELEMETRY_AUDIENCE=example-audience
+    run_validate cicd
+    [ "$status" -eq 1 ] || { echo "accepted url '$url'"; return 1; }
+    [[ "$output" == *"input 'telemetry-url'"* ]]
+  done
+}
+
+@test "telemetry: only one of the two inputs set passes with a warning (telemetry stays off, the pipeline is not stopped)" {
+  cicd_lambda_env
+  export INPUT_TELEMETRY_URL=https://collector.example.com INPUT_TELEMETRY_AUDIENCE=""
+  run_validate cicd
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"::warning"* ]]
+  [[ "$output" == *"telemetry-audience"* ]]
+}
