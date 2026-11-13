@@ -6,7 +6,8 @@
 #   2. needs "$TELEMETRY_DIR/telemetry-commits.json" (telemetry-fetch-commits.sh) and the id-token permission.
 #   3. the token is masked before its first use, travels in a request config on stdin (never in arguments) and is never printed:
 #      only job_workflow_ref and job_workflow_sha are shown, because they are what the collector validates.
-#   4. 202/200 = sent. 401/403/413/422 = definitive (no retry). 429/5xx/network = up to 3 attempts.
+#   4. 202/200 = sent (a 202 with provisional=true is sent too, but warns: the repository is not registered at the collector).
+#      401/403/413/422 = definitive (no retry). 429/5xx/network = up to 3 attempts.
 #      Not sent => "$TELEMETRY_DIR/telemetry-unsent.json" + the payload in the step summary (re-run the job to resend).
 # Env: TELEMETRY_URL, TELEMETRY_AUDIENCE, ACTIONS_ID_TOKEN_REQUEST_URL/TOKEN, plus everything telemetry-build-payload.sh reads,
 #   TELEMETRY_RETRY_DELAY (seconds, default 2), TELEMETRY_DIR, GITHUB_STEP_SUMMARY, GITHUB_OUTPUT.
@@ -140,6 +141,13 @@ main() {
   if [[ $code == 202 || $code == 200 ]]; then
     log "Telemetry sent (HTTP $code, ${key})."
     telemetry_summary "### Telemetry" "" "**Sent** (HTTP $code) · \`$key\`" ""
+    # A 202 with provisional=true is a green that hides a problem: the event was stored apart because the repository is not registered.
+    # Only the boolean is read from the body, never any other field.
+    if [[ -s $response ]] && [[ "$(jq -r '.provisional // false' "$response" 2>/dev/null)" == true ]]; then
+      warn "Telemetry sent, but the collector does not recognise this repository: the event is stored apart and will not count in any project's metrics until the repository is registered with the collector's owner."
+      telemetry_summary "> :warning: **Unregistered repository.** The collector accepted the event but stored it apart; it will not appear in any project's metrics until the repository is registered. The deployment is NOT affected." ""
+      telemetry_output provisional true
+    fi
     claims_block
     payload_block
     telemetry_output sent true

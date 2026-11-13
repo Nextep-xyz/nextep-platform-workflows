@@ -147,6 +147,28 @@ happy_routes() {
   grep -q '^sent=true' "$GITHUB_OUTPUT"
 }
 
+@test "a 202 with provisional=true is sent but warns that the repository is unregistered; a plain 202 does not" {
+  token_route
+  route '/v1/deployments' 0 202 "$(body_file '{"accepted":true,"duplicate":false,"provisional":true}')"
+  send
+  [ "$status" -eq 0 ]
+  [ ! -e "$UNSENT" ]
+  [[ "$output" == *"::warning::Telemetry sent, but the collector does not recognise this repository"* ]]
+  grep -q 'Unregistered repository' "$GITHUB_STEP_SUMMARY"
+  grep -q '^sent=true' "$GITHUB_OUTPUT"
+  grep -q '^provisional=true' "$GITHUB_OUTPUT"
+  no_leak
+}
+
+@test "a plain 202 or a duplicate 200 raises no provisional warning" {
+  happy_routes
+  send
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"::warning"* ]]
+  ! grep -q 'Unregistered repository' "$GITHUB_STEP_SUMMARY"
+  ! grep -q '^provisional=' "$GITHUB_OUTPUT"
+}
+
 @test "T7: definitive 4xx answers are not retried, leave the unsent file and show the collector's code, never the body" {
   local case_ code
   for case_ in "401|invalid_token" "403|claim_mismatch" "413|payload_too_large" "422|schema_invalid"; do
