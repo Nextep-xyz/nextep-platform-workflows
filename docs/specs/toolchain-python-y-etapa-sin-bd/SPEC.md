@@ -274,7 +274,10 @@ dialecto, otro input».
 | F1 | Hecha (2026-11-16), rama `feat/toolchain-python-y-etapa-sin-bd`, sin push. Suite completa: 265 `ok`, 0 fallos (línea base previa: 249) |
 | F2 | Hecha (2026-11-16), misma rama, sin push. Suite completa: 277 `ok`, 0 fallos; `shellcheck` y `actionlint` limpios |
 | F3 | Hecha (2026-11-16), misma rama, sin push. Suite completa verde; `git grep -n -i -E "sin tag\|aún no existe"` sobre `AGENTS.md` y el runbook → vacío |
-| F4–F5 | Pendientes (F4 requiere confirmación humana explícita) |
+| F4 | Hecha (2026-11-16) con confirmación humana explícita. `main` = `043e5f1` con `self-ci` verde; `release.yml` (`version=1.3.0`) verde; tag `v1.3.0` y alias `v1` → commit de release `13658c3`. `v1.2.0` y `v1.2.1` no se movieron (verificado con `git ls-remote --tags origin`) |
+| F5 | Pendiente: la hace el consumidor, no este repo |
+
+**Hand-off de F5 (para el consumidor):** llama los workflows por **tag** (`@v1` o `@v1.3.0`; con `@main` la telemetría responde 403). (A) Un run en `dev` con `python-version` + `python-requirements` apuntando a un archivo **compilado con hashes** y un `migration-command` de Python. (B) Un run en `dev` de un servicio sin base de datos con `migrate: false` y ningún input `db-*`. Registrar aquí el enlace de cada run. Callers de ejemplo: `test/sandbox/callers/cicd-python.yml` y `test/sandbox/callers/environment-deploy-ecs-no-db.yml`. Rollback: volver a `@v1.2.1`.
 
 **Notas de F3:**
 - Matriz: `H-16` (cicd) y `H-17` (environment-deploy) = toolchain de Python; `H-18` = etapa de BD omitible. Etiquetas `# parity:` solo como comentarios (excepción acotada en §7/F3).
