@@ -302,7 +302,7 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
       # migrate-before-deploy (expand/contract): the migration is a step here, before the infrastructure, not a job of its
       # own. A failing step stops the job, so a failed migration still means no deploy. Same lock, same role.
-      # parity: H-15
+      # parity: H-15, H-18
       - name: Prepare the SSM tunnel (migration before the deploy)
         id: tunnel
         if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate && inputs.migrate-before-deploy && inputs.db-access == 'ssm-tunnel' }}
@@ -313,7 +313,7 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
           bastion-id-ssm-param: ${{ inputs.bastion-id-ssm-param }}
           db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
-      # parity: H-15
+      # parity: H-15, H-18
       - name: Migrate, verify and seed (before the deploy)
         if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate && inputs.migrate-before-deploy }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main

@@ -213,7 +213,8 @@ dialecto, otro input».
 - **Dependencias:** F1 y F2.
 - **Toca:** `docs/parity/matrix.yml` (ids nuevos: toolchain de Python en ambos flujos; etapa de BD omitible en `environment-deploy`), `docs/runbook.md`, `README.md` (tabla de inputs), `AGENTS.md` (§2: el consumidor
   Python y el servicio sin BD; corrige además la línea «Sin tag `v1`»/«`@v1` aún no existe», desactualizada desde `v1.0.0`), `test/sandbox/`, `test/gates/doc-coherence.bats` si cubre los textos tocados.
-  **No toca:** workflows ni scripts.
+  **Excepción acotada (descubierta en F3, 2026-11-16):** el gate G18 exige que cada id `covered` de la matriz tenga una etiqueta `# parity: <id>` en `.github/` o `scripts/`; por eso F3 añade esas etiquetas **solo como comentarios** (en el composite `setup-project` y en los pasos del túnel/`migrate` del workflow de `environment-deploy`). Ningún cambio de lógica.
+  **No toca:** la lógica de workflows ni de scripts.
 - **Aceptación:** `bats --recursive test/bats test/gates` → todo `ok`; `git grep -n -i -E "sin tag|aún no existe"` sobre `AGENTS.md` y el runbook → vacío.
 - **Rollback:** revertir el commit (solo documentación y matriz).
 - **Checkpoint:** `docs: Document the Python toolchain and the optional database stage`.
@@ -272,7 +273,13 @@ dialecto, otro input».
 | F0 | Hecha (2026-11-16) |
 | F1 | Hecha (2026-11-16), rama `feat/toolchain-python-y-etapa-sin-bd`, sin push. Suite completa: 265 `ok`, 0 fallos (línea base previa: 249) |
 | F2 | Hecha (2026-11-16), misma rama, sin push. Suite completa: 277 `ok`, 0 fallos; `shellcheck` y `actionlint` limpios |
-| F3–F5 | Pendientes (F4 requiere confirmación humana explícita) |
+| F3 | Hecha (2026-11-16), misma rama, sin push. Suite completa verde; `git grep -n -i -E "sin tag\|aún no existe"` sobre `AGENTS.md` y el runbook → vacío |
+| F4–F5 | Pendientes (F4 requiere confirmación humana explícita) |
+
+**Notas de F3:**
+- Matriz: `H-16` (cicd) y `H-17` (environment-deploy) = toolchain de Python; `H-18` = etapa de BD omitible. Etiquetas `# parity:` solo como comentarios (excepción acotada en §7/F3).
+- Docs: runbook §1.1 (proyecto Python) y §1.2 (servicio sin BD) y tres filas en «When something fails»; README (tabla de inputs de la v1.3.0 y la frase obsoleta sobre el tag `v1`); AGENTS (dos bullets de consumidor y las frases obsoletas sobre `v1`/`release.yml`); sandbox: `cicd-python.yml`, `environment-deploy-ecs-no-db.yml` y dos puntos nuevos de «Things to check on the first real run».
+- **Hecho nuevo para F4 (verificado con `git ls-remote --tags origin`, 2026-11-16):** el remoto ya tiene `v1.2.1` y el alias `v1` apunta a ese commit; los tags locales están desactualizados (faltan `v1.2.1` y el movimiento de `v1`). La verificación de F4 pasa a ser «`v1.2.1` y `v1.2.0` no se movieron» (no solo `v1.2.0`), y el release sigue siendo `v1.3.0`. `origin/main` = `873cc66` (la base de esta rama); el commit de `v1.2.1` no está en `main`.
 
 **Notas de F2:**
 - Las 5 condiciones están en `lego-aws-environment-deploy.yml`: paso del túnel, paso `migrate`, job `database-migration` y job `post-deploy` ganan `&& inputs.migrate`; el paso de post-deploy de `infra-deploy` gana `|| !inputs.migrate`. Ningún `name:` cambió.

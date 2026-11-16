@@ -6,7 +6,7 @@
 
 **Estado:** P1 (`lego-aws-cicd` y `lego-aws-environment-deploy`) implementada y verificada **solo en local**
 (bats, actionlint, shellcheck, gitleaks). **No verificado contra una cuenta AWS real**: spikes S1/S3/S4 e integración
-en `dev` pendientes (`docs/adr/`, `test/sandbox/README.md`). No existe ningún tag `v1`; todavía no hay nada que consumir.
+en `dev` pendientes (`docs/adr/`, `test/sandbox/README.md`). Los releases (`vX.Y.Z` y el alias `v1`) los crea solo `release.yml`.
 La enmienda vigente sobre el resto del diseño está en `SPEC.md §0`; la guía de adopción en `docs/runbook.md`.
 
 **Este repo es público.** No contiene secretos, cuentas cloud, URLs internas ni referencias a proyectos
@@ -73,6 +73,13 @@ reporta el despliegue a un colector DORA si lo configuras (sección 4).
 con `migrate-before-deploy: true` la migración y el `post-deploy-command` corren como **pasos** de `infra-deploy`
 (mismo rol, mismo install): el run son dos runners, `quality-and-security-gate` → `infra-deploy`. Solo el orden
 infra → migración mantiene jobs aparte (`database-migration`, `post-deploy`), porque la migración debe esperar a la infra.
+
+**Entradas opcionales de la v1.3.0** (aditivas: sin ellas todo se comporta como en la v1.2):
+
+| Input | Workflow | Qué hace |
+|---|---|---|
+| `python-version` + `python-requirements` | ambos | Instala Python (con caché de pip) y los requisitos **fijados** (`==` o hashes) antes de lint, tests y migración. Van juntos. Node sigue instalándose. Ver `docs/runbook.md` §1.1 |
+| `migrate` (default `true`) | `lego-aws-environment-deploy` | `false` apaga toda la etapa de base de datos de un servicio `ecs`/`lambda` sin BD (sin túnel ni job de migración) y rechaza los inputs `db-*` con valor. Ver `docs/runbook.md` §1.2 |
 
 Además cada ejecución **le cuenta lo que pasó** a quien la lee: un resumen en la pestaña del run y un comentario
 en el PR cuando falla un gate o termina un deploy, con enlace directo al log.

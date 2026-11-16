@@ -32,7 +32,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # parity: P-CI-01, P-EN-02, H-02
+    # parity: P-CI-01, P-EN-02, H-02, H-16, H-17
     - name: Set up pnpm
       if: inputs.package-manager == 'pnpm'
       uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1

@@ -1,0 +1,35 @@
+# Fictional caller (project "shop-api", compute ecs: a Python API with alembic migrations).
+# python-version + python-requirements install Python with a pip cache and the PINNED requirements before lint, tests and the
+# migration (every requirement needs `==` or hashes; ranges, URLs, -e and --index-url are rejected naming file and line).
+# Prefer ONE compiled file with hashes for the whole tree (for example pip-compile --generate-hashes). Node is still installed
+# (install-dirs, default ".") because the infrastructure code of this project is a CDK app.
+# test-database-image hands over postgresql://...: a driver dialect (postgresql+asyncpg://) is the command's business.
+name: cicd
+on:
+  push:
+    branches: [develop]
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd: # the id of this job is part of the required check name
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main
+    with:
+      project: shop-api
+      environment: dev
+      compute: ecs
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      branch-map: '{"develop":"dev"}'
+      python-version: "3.12"
+      python-requirements: backend/requirements.txt
+      test-database-image: postgres:17
+      lint-command: cd backend && ruff check . && mypy app
+      test-command: cd backend && TEST_DATABASE_URL="${TEST_DATABASE_URL/postgresql:\/\//postgresql+asyncpg:\/\/}" pytest -q
+      bastion-id-ssm-param: /{project}/core/{stage}/bastion-id
+      db-endpoint-ssm-param: /{project}/core/{stage}/db-endpoint
+      db-secret-id: "{project}/{env}/core/database-credentials"
+      db-name: shop_api
+      db-schema: public
+      migration-command: cd backend && alembic upgrade head
+      migration-verify-command: cd backend && alembic check
+      ecs-cluster-ssm-param: /{project}/core/{stage}/ecs-cluster-name
+      ecs-service-ssm-param: /{project}/api/{stage}/ecs-service-name
+      ecr-repository: "shop-api-{env}"

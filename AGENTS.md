@@ -6,7 +6,7 @@ Este archivo es para ti, agente. Cumple lo que dice aquí y, si algo no encaja, 
 (implementados en P1; el eje es el **flujo**, el cómputo es el input `compute`). `lego-azure-satellite` sigue en diseño.
 Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre el resto**). Adopción y operación: `docs/runbook.md`.
 **Estado:** P1 hecha y verificada solo en local. **No verificado:** spikes S1/S3/S4 y runs en `dev` (`docs/adr/`,
-`test/sandbox/README.md`). Sin tag `v1`. El detalle de fases vive en el spec P1 del repo privado de diseño.
+`test/sandbox/README.md`). Existen los tags `vX.Y.Z` y el alias `v1` (primer release `v1.0.0`). El detalle de fases vive en el spec P1 del repo privado de diseño.
 
 > ## ⚠️ Este repo es PÚBLICO
 > Todo lo que escribas aquí (código, ejemplos, mensajes de commit, issues, PRs, comentarios) lo puede leer
@@ -33,7 +33,7 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 
 - El pipeline de un proyecto es un **caller de pocas líneas** (`SPEC.md §5.2`):
   `uses: <org>/nextep-platform-workflows/.github/workflows/<workflow>.yml@v1` con `with:` y `secrets:`
-(`@v1` aún no existe: hasta el primer release no hay nada estable que consumir).
+  (`@v1` es el alias del último release; fija `@vX.Y.Z` si necesitas reproducibilidad exacta).
   **No copies la lógica** a otro repo ni escribas un pipeline propio "parecido".
 - El caller concede `permissions: { id-token: write, contents: read, pull-requests: write }`. Sin eso el
   workflow falla; no lo "arregles" quitando pasos.
@@ -45,6 +45,8 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 - Los comandos del proyecto (lint, test, migrate, migrate-status, seed) son **inputs del caller**; los defaults son targets
   de `make` (`make lint`, `make test-ci`, `make migrate`, ...) y se sobreescriben por input (ver `contracts/` y
   `test/sandbox/callers/`). Si falta uno, el workflow falla nombrándolo.
+- **Proyecto en Python** (`python-version` + `python-requirements`, v1.3.0): los dos van juntos y **todo requisito debe estar fijado** (`==` o `--hash=`); rangos, `-e`, URLs/VCS y `--index-url`/`--extra-index-url` se rechazan nombrando archivo y línea. Recomienda **un solo archivo compilado con hashes** (un `==` solo en lo directo no es un lockfile). Node sigue instalándose. Runbook §1.1.
+- **Servicio sin base de datos** (`migrate: false` en `environment-deploy`, v1.3.0): apaga **toda** la etapa de BD y rechaza cualquier input `db-*` con valor; no lo infieras de inputs vacíos ni lo uses en un servicio que sí migra. Runbook §1.2.
 - Para reportar telemetría DORA: `telemetry-url` y `telemetry-audience` desde `vars` del repo (nunca literales) y el workflow por **tag** (`@v1` o `@vX.Y.Z`): el colector valida que el `job_workflow_ref` sea `lego-*.yml@refs/tags/v…`, así que con `@main`, un SHA o una rama responde 403 y la métrica se pierde (el pipeline sigue verde). Reenviar = *Re-run job* `telemetry-phone-home` (runbook §4).
 - Si el workflow no cubre lo que necesitas: **repórtalo** (qué input o paso falta). No copies YAML de otro sitio.
 - Nunca desactives ni relajes el gate de calidad/seguridad; no existe un input para eso, y no debe existir.
@@ -84,7 +86,7 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
   - `continue-on-error: true` **solo** en telemetría y reporte (en el job y en el paso); el gate, la migración y el deploy fallan de verdad.
   - Telemetría: solo los campos de `contracts/telemetry.schema.json` (`additionalProperties: false`; su hash canónico lo fija el gate T1). Añadir un campo = nueva `schema_version` en este repo **y** en el colector. Nada de personas (`actor`) ni firmas con secreto compartido (el diseño anterior, sustituido). `telemetry-audience` es un slug sin puntos (T2): nunca una audiencia de una nube. Spec: `docs/specs/telemetria-dora/SPEC.md`.
 - **Scripts:** bash con `set -euo pipefail`, `shellcheck` limpio y un test `bats` con `aws`/`az`/`curl` falsos.
-- **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml` (existe, **sin ejecutar**; sus rulesets se configuran a mano en GitHub). **Nunca** crees, muevas ni
+- **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml` (sus rulesets se configuran a mano en GitHub). **Nunca** crees, muevas ni
   borres un tag a mano. Un cambio incompatible = versión mayor.
 - **No modifiques repos de proyectos consumidores.** Se prueba en `test/sandbox/` con datos ficticios.
 - **Una fase = un commit coherente.** No empieces otra con la anterior en rojo. Al cerrar, actualiza
@@ -121,4 +123,4 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 | `test/` | bats, gates por disco (`test/gates/`), fixtures, `sandbox/callers/` |
 | `docs/` | `adr/` (spikes, NOT VERIFIED), `iam/`, `parity/matrix.yml`, `exceptions.yml`, `runbook.md` |
 
-Aún **no existe**: el tag `v1` (nadie ha ejecutado `release.yml`) ni `lego-azure-satellite`. No lo inventes antes.
+`lego-azure-satellite` sigue sin existir: no lo inventes antes.

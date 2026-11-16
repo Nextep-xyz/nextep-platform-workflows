@@ -54,3 +54,7 @@ parity:
   - { id: H-13, flow: environment-deploy, summary: "Optional deploy variable from the caller (expression in the caller's own with:)", status: covered, inputs: [infra-deploy-command] }
   - { id: H-14, flow: environment-deploy, summary: "Per-environment concurrency, never cancelling", status: covered, inputs: [project, environment] }
   - { id: H-15, flow: environment-deploy, summary: "Migrate before deploying the application code (expand/contract)", status: covered, inputs: [migrate-before-deploy] }
+  # ---- v1.3.0: Python toolchain and optional database stage ---------------------------------------------------------
+  - { id: H-16, flow: cicd, summary: "Python toolchain: pinned requirements (pip), cache, no venv", status: covered, inputs: [python-version, python-requirements] }
+  - { id: H-17, flow: environment-deploy, summary: "Python toolchain: pinned requirements (pip), cache, no venv", status: covered, inputs: [python-version, python-requirements] }
+  - { id: H-18, flow: environment-deploy, summary: "Service with no database: the whole database stage is switched off explicitly", status: covered, inputs: [migrate] }
