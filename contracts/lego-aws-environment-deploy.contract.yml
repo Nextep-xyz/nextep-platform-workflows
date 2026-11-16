@@ -126,6 +126,9 @@ inputs:
   migrate-before-deploy:
     type: boolean
     default: false
+  migrate:
+    type: boolean
+    default: true
   lint-command:
     type: string
     default: ""

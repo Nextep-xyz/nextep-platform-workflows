@@ -68,6 +68,14 @@ static_env_deploy() {
   export INPUT_BRANCH_MAP='{"main":"prod"}' INPUT_INFRA_DEPLOY_COMMAND='cd infra && pnpm exec cdk deploy "ShopWebHosting-$APP_STAGE"'
 }
 
+# A service on ECS without a database: environment-deploy with the database stage switched off (migrate=false).
+ecs_nodb_env_deploy() {
+  common_env
+  export INPUT_COMPUTE=ecs INPUT_ENVIRONMENT=prod EVENT_NAME=workflow_dispatch REF_NAME=main INPUT_MIGRATE=false
+  export INPUT_BRANCH_MAP='{"main":"prod"}' INPUT_INFRA_DEPLOY_COMMAND='pnpm --dir infra exec cdk deploy --all'
+  export INPUT_ECR_REPOSITORY='shop-web-{env}'
+}
+
 static_cicd_env() {
   common_env
   export INPUT_COMPUTE=static INPUT_DEPLOY_COMMAND='pnpm --dir infra exec cdk deploy "ShopWebHosting-$APP_STAGE"'

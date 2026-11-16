@@ -412,3 +412,60 @@ YAML
   red python-toolchain.bats "no setup-project step found in any reusable workflow"
   [[ "$output" == *"no actions/setup-python reference found"* ]]
 }
+
+# A workflow shaped like environment-deploy whose database stage ignores `migrate`. The prefix inputs.migrate-before-deploy
+# must NOT count as honouring inputs.migrate (the first condition below is the trap).
+db_stage_workflow() {
+  cat >"$WF" <<'YAML'
+on:
+  workflow_call:
+    inputs:
+      migrate-before-deploy: { type: boolean, default: false }
+      migrate: { type: boolean, default: true }
+jobs:
+  infra-deploy:
+    name: infra-deploy
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - name: tunnel
+        if: ${{ inputs.compute != 'static' && inputs.migrate-before-deploy }}
+        uses: example-org/nextep-platform-workflows/.github/actions/ssm-tunnel@main
+      - name: migrate
+        if: ${{ inputs.compute != 'static' && inputs.migrate && inputs.migrate-before-deploy }}
+        uses: example-org/nextep-platform-workflows/.github/actions/migrate@main
+      - name: post
+        if: ${{ inputs.migrate-before-deploy || inputs.compute == 'static' }}
+        uses: example-org/nextep-platform-workflows/.github/actions/post-deploy@main
+  database-migration:
+    name: database-migration
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    if: ${{ inputs.compute != 'static' && !inputs.migrate-before-deploy }}
+    steps: [{ run: echo ok }]
+  post-deploy:
+    name: post-deploy
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    if: ${{ inputs.compute != 'static' && inputs.migrate }}
+    steps: [{ run: echo ok }]
+YAML
+}
+
+@test "G-DB2 red: each piece of the database stage that ignores inputs.migrate is named (inputs.migrate-before-deploy does not count)" {
+  db_stage_workflow
+  red skip-database-stage.bats "lego-aws-bad.yml: job database-migration does not honour inputs.migrate"
+  [[ "$output" == *"lego-aws-bad.yml: a tunnel/migrate step of infra-deploy does not honour inputs.migrate"* ]]
+  [[ "$output" == *"lego-aws-bad.yml: the post-deploy step of infra-deploy does not run when the stage is off"* ]]
+  [[ "$output" != *"job post-deploy (the one that waits"* ]]
+}
+
+@test "G-DB2/G-DB3 red: a workflow with migrate-before-deploy but no migrate input, and a tree with no such workflow, are named" {
+  db_stage_workflow
+  sed -i '/^      migrate: {/d' "$WF"
+  red skip-database-stage.bats "lego-aws-bad.yml: the workflow has migrate-before-deploy but no migrate input"
+  [[ "$output" == *"lego-aws-bad.yml: input migrate must be type boolean with default true"* ]]
+  rm -f "$WF"
+  good_workflow
+  red skip-database-stage.bats "no workflow with the migrate-before-deploy input was found"
+}

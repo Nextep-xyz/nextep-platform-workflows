@@ -199,7 +199,8 @@ dialecto, otro input».
 - **Objetivo:** un servicio `ecs` sin base de datos despliega con `environment-deploy` y `migrate: false`.
 - **Dependencias:** F0 (Q2 resuelta: `migrate`). F2 es independiente de F1 y puede ir en paralelo.
 - **Toca:** `.github/workflows/lego-aws-environment-deploy.yml`, `scripts/validate-inputs.sh`, `contracts/lego-aws-environment-deploy.contract.yml`, `test/bats/validate-inputs-migrate.bats`,
-  `test/gates/skip-database-stage.bats`, `test/sandbox/callers/` (un caller `ecs` sin base de datos). **No toca:** `lego-aws-cicd`, composites, scripts de migración y de túnel, telemetría.
+  `test/gates/skip-database-stage.bats`, `test/gates/deploy-flow.bats` (fija la cadena exacta de la condición del paso de post-deploy, que cambia a `… || !inputs.migrate)`; descubierto al ejecutar F2, 2026-11-16),
+  `test/bats/gates-red.bats` (casos en rojo de G-DB2/G-DB3), `test/bats/helpers.bash`, `test/sandbox/callers/` (un caller `ecs` sin base de datos). **No toca:** `lego-aws-cicd`, composites, scripts de migración y de túnel, telemetría.
 - **Tareas:** (1) bats G-DB1 y gate G-DB2 en rojo; (2) input y condiciones de §3.2; (3) reglas de rechazo en `validate-inputs.sh`; (4) contrato; (5) caller sandbox y verificación de que el job de telemetría
   arma el payload con `database-migration` en `skipped` (escenario existente de `compute: static`); (6) verde y verificación en rojo de G-DB2 quitando `inputs.migrate` de una condición.
 - **Aceptación:** `bats test/bats/validate-inputs-migrate.bats test/gates/skip-database-stage.bats test/gates/static-compute.bats test/gates/contract-sync.bats test/gates/rollback-and-event-guards.bats` → todo `ok`.
@@ -270,7 +271,15 @@ dialecto, otro input».
 | Spec | **APROBADO** (2026-11-16) |
 | F0 | Hecha (2026-11-16) |
 | F1 | Hecha (2026-11-16), rama `feat/toolchain-python-y-etapa-sin-bd`, sin push. Suite completa: 265 `ok`, 0 fallos (línea base previa: 249) |
-| F2–F5 | Pendientes |
+| F2 | Hecha (2026-11-16), misma rama, sin push. Suite completa: 277 `ok`, 0 fallos; `shellcheck` y `actionlint` limpios |
+| F3–F5 | Pendientes (F4 requiere confirmación humana explícita) |
+
+**Notas de F2:**
+- Las 5 condiciones están en `lego-aws-environment-deploy.yml`: paso del túnel, paso `migrate`, job `database-migration` y job `post-deploy` ganan `&& inputs.migrate`; el paso de post-deploy de `infra-deploy` gana `|| !inputs.migrate`. Ningún `name:` cambió.
+- Trampa que el gate cubre: `inputs.migrate-before-deploy` contiene el prefijo `inputs.migrate`; los patrones de `test/gates/skip-database-stage.bats` lo excluyen y `gates-red.bats` tiene el caso trampa (una condición que solo trae `migrate-before-deploy` se reporta).
+- `migrate: false` con `compute: static` no añade reglas (static ya rechaza lo suyo). La validación nueva solo corre para `compute != static`.
+- Telemetría: sin cambios; el escenario existente de `test/bats/telemetry-payload.bats` (`needs_envdeploy success success skipped skipped`) es exactamente el resultado de un run con `migrate: false`.
+- Caller sandbox: `test/sandbox/callers/environment-deploy-ecs-no-db.yml`. Su fila en `test/sandbox/README.md` entra en F3.
 
 **Notas de F1 (para quien retome):**
 - `python-install.sh` valida todos los archivos antes de instalar y reporta todos los problemas con `archivo:línea`. `-r`/`-c` anidados: relativos al archivo que los contiene, dentro del repo, profundidad ≤ 3, sin ciclos (Q3: se ejecutó lo propuesto).

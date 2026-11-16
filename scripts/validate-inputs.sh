@@ -99,6 +99,7 @@ if [[ $flow == cicd ]]; then
 fi
 if [[ $flow == environment-deploy ]]; then
   case "$(val migrate-before-deploy)" in true | false | "") ;; *) err "input 'migrate-before-deploy' must be true or false (got '$(val migrate-before-deploy)')" ;; esac
+  case "$(val migrate)" in true | false | "") ;; *) err "input 'migrate' must be true or false (got '$(val migrate)')" ;; esac
 fi
 
 # --- G26: the event that triggered the caller must be the allowed one --------------------------------------------
@@ -127,7 +128,7 @@ fi
 migrates=false
 if [[ $flow == environment-deploy ]]; then
   need infra-deploy-command "in environment-deploy"
-  [[ -z "$(val image-tag)" && $compute != static ]] && migrates=true
+  [[ -z "$(val image-tag)" && $compute != static && "$(val migrate)" != false ]] && migrates=true
   [[ $compute == ecs ]] && need ecr-repository "when compute=ecs"
 else
   if [[ $run_deploy == true ]]; then
@@ -168,6 +169,23 @@ if [[ $compute == static ]]; then
     n="${pair%%:*}"
     d="${pair#*:}"
     [[ -z "$(val "$n")" || "$(val "$n")" == "$d" ]] || err "input '$n' is not allowed with compute=static (a static site has no database stage)"
+  done
+fi
+
+# --- migrate=false: the database stage is switched off -----------------------------------------------------------------
+# Same rule as compute=static, applied to ecs and lambda: a caller that opts out of the stage cannot keep configuration that
+# looks like it does something. A service that has a database cannot switch the stage off without deleting that configuration
+# in plain sight of the review. compute=static has no stage at all and ignores `migrate` (its own block above).
+if [[ $flow == environment-deploy && $compute != static && "$(val migrate)" == false ]]; then
+  for n in bastion-id-ssm-param db-endpoint-ssm-param db-secret-id db-name db-schema migration-pre-command post-migrate-command; do
+    [[ -z "$(val "$n")" ]] || err "input '$n' is not allowed with migrate=false (the database stage is switched off)"
+  done
+  [[ "$db_access" != iam-direct ]] || err "input 'db-access' is not allowed with migrate=false (the database stage is switched off)"
+  [[ "$(val migrate-before-deploy)" != true ]] || err "input 'migrate-before-deploy' is not allowed with migrate=false (the database stage is switched off)"
+  for pair in 'migration-command:make migrate' 'migration-verify-command:make migrate-status'; do
+    n="${pair%%:*}"
+    d="${pair#*:}"
+    [[ -z "$(val "$n")" || "$(val "$n")" == "$d" ]] || err "input '$n' is not allowed with migrate=false (the database stage is switched off)"
   done
 fi
 

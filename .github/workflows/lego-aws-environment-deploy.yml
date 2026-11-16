@@ -7,6 +7,8 @@
 # migration and the post-deploy command run as STEPS of infra-deploy (same role, same checkout, same install), so the
 # run is two runners (gate, infra-deploy). The separate database-migration and post-deploy jobs exist only for the
 # order infrastructure -> migration -> post-deploy, where the migration must wait for the infrastructure.
+# migrate: false switches the whole database stage off (a service with no database): same shape as compute static, and the
+# post-deploy command runs as the last step of infra-deploy. Gate: test/gates/skip-database-stage.bats.
 name: lego-aws-environment-deploy
 
 on:
@@ -176,6 +178,10 @@ on:
         description: "true runs the migration BEFORE the infrastructure (expand/contract: the new code never meets an old schema). false keeps the order of the first version: infrastructure, then migration."
         type: boolean
         default: false
+      migrate:
+        description: "true (default) runs the database stage. false switches the WHOLE stage off for a service with no database (compute ecs or lambda): no tunnel, no migration job, and post-deploy-command runs inside infra-deploy. Rejects every database input that carries a value."
+        type: boolean
+        default: true
       lint-command:
         description: "Typecheck and lint command, run before anything is deployed. Empty skips it."
         type: string
@@ -299,7 +305,7 @@ jobs:
       # parity: H-15
       - name: Prepare the SSM tunnel (migration before the deploy)
         id: tunnel
-        if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate-before-deploy && inputs.db-access == 'ssm-tunnel' }}
+        if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate && inputs.migrate-before-deploy && inputs.db-access == 'ssm-tunnel' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
         with:
           project: ${{ inputs.project }}
@@ -309,7 +315,7 @@ jobs:
           db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
       # parity: H-15
       - name: Migrate, verify and seed (before the deploy)
-        if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate-before-deploy }}
+        if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate && inputs.migrate-before-deploy }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
         with:
           mode: environment-deploy
@@ -356,7 +362,7 @@ jobs:
       # Without it, the post-deploy JOB below runs after the migration.
       # parity: H-09, H-12
       - name: Post-deploy command (inside infra-deploy; any migration already ran)
-        if: ${{ (inputs.migrate-before-deploy || inputs.compute == 'static') && inputs.post-deploy-command != '' }}
+        if: ${{ (inputs.migrate-before-deploy || inputs.compute == 'static' || !inputs.migrate) && inputs.post-deploy-command != '' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
         with:
           project: ${{ inputs.project }}
@@ -374,7 +380,7 @@ jobs:
   database-migration:
     name: database-migration
     needs: [quality-and-security-gate, infra-deploy]
-    if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && !inputs.migrate-before-deploy }}
+    if: ${{ inputs.image-tag == '' && inputs.compute != 'static' && inputs.migrate && !inputs.migrate-before-deploy }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -459,7 +465,7 @@ jobs:
     # Only for the order infrastructure -> migration (migrate-before-deploy false): it must wait for the migration.
     # With migrate-before-deploy true the same command already ran as the last step of infra-deploy.
     if: >-
-      ${{ always() && inputs.post-deploy-command != '' && !inputs.migrate-before-deploy && inputs.compute != 'static'
+      ${{ always() && inputs.post-deploy-command != '' && !inputs.migrate-before-deploy && inputs.compute != 'static' && inputs.migrate
       && needs.quality-and-security-gate.result == 'success'
       && needs.infra-deploy.result == 'success'
       && (needs.database-migration.result == 'success' || needs.database-migration.result == 'skipped') }}

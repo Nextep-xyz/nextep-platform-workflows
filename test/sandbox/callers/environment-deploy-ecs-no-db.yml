@@ -1,0 +1,30 @@
+# Fictional caller (project "shop-web", compute ecs: a web front on a container service, no database). Manual only.
+# migrate: false switches the whole database stage off: no tunnel, no migration job, and the post-deploy command runs inside
+# infra-deploy. Every database input is rejected with it, so the caller carries no configuration that looks like it does
+# something. Rolling back is the same as for a service with a database: pass image-tag (nothing is built, nothing migrates).
+name: environment-deploy
+on:
+  workflow_dispatch:
+    inputs:
+      environment: { type: choice, options: [dev, stg, prod], required: true }
+      image-tag: { type: string, required: false, default: "" }
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  environment-deploy:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@main
+    with:
+      project: shop-web
+      environment: ${{ inputs.environment }}
+      compute: ecs
+      migrate: false
+      role-arn: ${{ vars[format('AWS_ROLE_ARN_{0}', inputs.environment == 'prod' && 'PROD' || inputs.environment == 'stg' && 'STG' || 'DEV')] }}
+      branch-map: '{"main":"prod","staging":"stg","develop":"dev"}'
+      image-tag: ${{ inputs.image-tag }}
+      package-manager: pnpm
+      install-dirs: ".,infra"
+      lint-command: pnpm exec tsc --noEmit
+      test-command: pnpm test
+      ecr-repository: shop-web-{env}
+      infra-bootstrap-command: cd infra && pnpm exec cdk deploy "ShopWebRegistry-$APP_STAGE" --require-approval never
+      infra-deploy-command: cd infra && pnpm exec cdk deploy "ShopWebService-$APP_STAGE" --require-approval never
+      post-deploy-command: node scripts/verify-service.mjs
