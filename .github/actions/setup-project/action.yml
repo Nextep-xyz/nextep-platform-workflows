@@ -1,5 +1,5 @@
 name: setup-project
-description: Package manager + Node setup, dependency cache and immutable install.
+description: Package manager + Node setup, dependency cache and immutable install; optional Python toolchain with pinned requirements.
 inputs:
   package-manager:
     description: npm or pnpm.
@@ -21,6 +21,14 @@ inputs:
     description: Comma separated package roots (relative paths). Each one needs its own lockfile.
     required: false
     default: "."
+  python-version:
+    description: Python version (3.N or 3.N.P). Empty means no Python is installed. Needs python-requirements.
+    required: false
+    default: ""
+  python-requirements:
+    description: Comma separated requirements files (relative paths), installed in order. Every requirement must be pinned with == (or carry hashes).
+    required: false
+    default: ""
 runs:
   using: composite
   steps:
@@ -62,3 +70,34 @@ runs:
       run: |
         set -euo pipefail
         "$SCRIPTS/install-dirs.sh" install
+    # Python is optional and additive: Node is always installed (a repo with a CDK app needs it whatever its application is).
+    - name: Resolve the Python requirements files (cache key)
+      id: pyfiles
+      if: ${{ inputs.python-version != '' }}
+      shell: bash
+      env:
+        PYTHON_REQUIREMENTS: ${{ inputs.python-requirements }}
+      run: |
+        set -euo pipefail
+        delimiter="EOF_$(openssl rand -hex 8)"
+        {
+          echo "files<<${delimiter}"
+          tr ',' '\n' <<<"$PYTHON_REQUIREMENTS"
+          echo "${delimiter}"
+        } >>"$GITHUB_OUTPUT"
+    - name: Set up Python with the pip cache
+      if: ${{ inputs.python-version != '' }}
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+        cache-dependency-path: ${{ steps.pyfiles.outputs.files }}
+    - name: Install the pinned Python requirements
+      if: ${{ inputs.python-version != '' }}
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PYTHON_REQUIREMENTS: ${{ inputs.python-requirements }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/python-install.sh"

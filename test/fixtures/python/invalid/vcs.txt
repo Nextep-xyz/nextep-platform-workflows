@@ -1,0 +1,3 @@
+# comment
+fastapi==0.115.0
+git+https://example.com/example-org/shop-lib.git@main

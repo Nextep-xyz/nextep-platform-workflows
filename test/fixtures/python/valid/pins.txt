@@ -1,0 +1,6 @@
+# Pinned direct and transitive dependencies (fictional project).
+
+fastapi==0.115.0
+uvicorn[standard]==0.30.6   # extras and a trailing comment are fine
+alembic == 1.13.2
+tzdata==2024.1 ; sys_platform == "win32" and python_version >= "3.9"

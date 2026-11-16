@@ -1,0 +1,3 @@
+# comment
+fastapi==0.115.0
+shop-lib @ https://example.com/shop_lib-1.0-py3-none-any.whl

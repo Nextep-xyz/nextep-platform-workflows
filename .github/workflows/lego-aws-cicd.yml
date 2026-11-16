@@ -42,6 +42,14 @@ on:
         description: "File with the Node version, for example .nvmrc."
         type: string
         default: ""
+      python-version:
+        description: "Python version (3.N or 3.N.P). Empty installs no Python. Needs python-requirements."
+        type: string
+        default: ""
+      python-requirements:
+        description: "Comma separated requirements files (relative paths), installed in order. Every requirement must be pinned with == (or carry hashes)."
+        type: string
+        default: ""
       branch-map:
         description: "JSON object branch -> environment. Guard against deploying a branch to the wrong environment."
         type: string
@@ -237,6 +245,8 @@ jobs:
           node-version: ${{ inputs.node-version }}
           node-version-file: ${{ inputs.node-version-file }}
           install-dirs: ${{ inputs.install-dirs }}
+          python-version: ${{ inputs.python-version }}
+          python-requirements: ${{ inputs.python-requirements }}
       # parity: P-CI-02, P-CI-03, P-CI-04
       - name: Quality gate
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
@@ -292,6 +302,8 @@ jobs:
           node-version: ${{ inputs.node-version }}
           node-version-file: ${{ inputs.node-version-file }}
           install-dirs: ${{ inputs.install-dirs }}
+          python-version: ${{ inputs.python-version }}
+          python-requirements: ${{ inputs.python-requirements }}
       # parity: P-CI-06, H-06
       - name: Assume the environment role
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
@@ -378,6 +390,8 @@ jobs:
           node-version: ${{ inputs.node-version }}
           node-version-file: ${{ inputs.node-version-file }}
           install-dirs: ${{ inputs.install-dirs }}
+          python-version: ${{ inputs.python-version }}
+          python-requirements: ${{ inputs.python-requirements }}
       # parity: P-CI-06, H-06, H-07
       - name: Assume the environment role
         id: oidc

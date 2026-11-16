@@ -372,3 +372,43 @@ YAML
   red aws-account.bats "lego-aws-bad.yml: input 'aws-account-id' looks like an account id"
   [[ "$output" == *"lego-aws-bad.yml: AWS_ACCOUNT_ID is assigned a literal"* ]]
 }
+
+@test "G-PY4 red: a setup-project step without the Python inputs, a composite that installs Python unconditionally and an unpinned setup-python are named" {
+  mkdir -p "$FX/.github/actions/setup-project"
+  cat >"$WF" <<'YAML'
+on:
+  workflow_call:
+    inputs:
+      project: { type: string, required: true }
+jobs:
+  quality-and-security-gate:
+    name: quality-and-security-gate
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - name: Set up the project
+        uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          install-dirs: .
+YAML
+  cat >"$FX/.github/actions/setup-project/action.yml" <<'YAML'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with: { python-version: "3.12" }
+    - shell: bash
+      run: scripts/python-install.sh
+YAML
+  red python-toolchain.bats "lego-aws-bad.yml: job 'quality-and-security-gate', step 'Set up the project': python-version is not passed from the workflow input"
+  [[ "$output" == *"lego-aws-bad.yml: the workflow does not declare the inputs python-version and python-requirements"* ]]
+  [[ "$output" == *"setup-project/action.yml: the composite does not declare python-version and python-requirements"* ]]
+  [[ "$output" == *"setup-project/action.yml: the actions/setup-python step is not conditional on inputs.python-version"* ]]
+  [[ "$output" == *"setup-project/action.yml: actions/setup-python must be 'actions/setup-python@<40-hex SHA> # vX.Y.Z'"* ]]
+}
+
+@test "G-PY4 red: a tree with no setup-project step or no setup-python reference fails with 'no ... found' instead of passing" {
+  good_workflow
+  red python-toolchain.bats "no setup-project step found in any reusable workflow"
+  [[ "$output" == *"no actions/setup-python reference found"* ]]
+}

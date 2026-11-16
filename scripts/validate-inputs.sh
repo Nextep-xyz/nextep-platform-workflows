@@ -62,6 +62,24 @@ if [[ -n $install_dirs ]]; then
   done
 fi
 
+# Python toolchain (G-PY1, G-PY2): both inputs or none. The content of the files is validated by python-install.sh once the
+# repository is checked out; here only the shape of the inputs.
+py_version="$(val python-version)"
+py_reqs="$(val python-requirements)"
+if [[ -n $py_version && ! $py_version =~ ^3\.[0-9]{1,2}(\.[0-9]{1,2})?$ ]]; then
+  err "input 'python-version' must be 3.N or 3.N.P, for example 3.12 or 3.12.7 (got '$py_version')"
+fi
+[[ -z $py_version || -n $py_reqs ]] || err "input 'python-version' needs 'python-requirements' (a Python version without dependencies is an oversight)"
+[[ -z $py_reqs || -n $py_version ]] || err "input 'python-requirements' needs 'python-version' (the files cannot be installed without a Python)"
+if [[ -n $py_reqs ]]; then
+  IFS=',' read -r -a _reqs <<<"$py_reqs"
+  for d in "${_reqs[@]}"; do
+    if [[ ! $d =~ ^[A-Za-z0-9_][A-Za-z0-9._/-]*$ ]] || [[ $d == *..* ]] || [[ $d == */ ]]; then
+      err "input 'python-requirements' has an invalid path '$d' (comma separated relative paths to files, no '..', no spaces, no trailing '/')"
+    fi
+  done
+fi
+
 test_image="$(val test-database-image)"
 if [[ -n $test_image ]]; then
   if [[ $test_image =~ ^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]; then

@@ -29,6 +29,12 @@ inputs:
   node-version-file:
     type: string
     default: ""
+  python-version:
+    type: string
+    default: ""
+  python-requirements:
+    type: string
+    default: ""
   branch-map:
     type: string
     default: ""

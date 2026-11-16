@@ -269,7 +269,14 @@ dialecto, otro input».
 |---|---|
 | Spec | **APROBADO** (2026-11-16) |
 | F0 | Hecha (2026-11-16) |
-| F1–F5 | Pendientes |
+| F1 | Hecha (2026-11-16), rama `feat/toolchain-python-y-etapa-sin-bd`, sin push. Suite completa: 265 `ok`, 0 fallos (línea base previa: 249) |
+| F2–F5 | Pendientes |
+
+**Notas de F1 (para quien retome):**
+- `python-install.sh` valida todos los archivos antes de instalar y reporta todos los problemas con `archivo:línea`. `-r`/`-c` anidados: relativos al archivo que los contiene, dentro del repo, profundidad ≤ 3, sin ciclos (Q3: se ejecutó lo propuesto).
+- `setup-python` fijado en `v7.1.0` (SHA `6d4fd22b…`), igual que `setup-node`. La clave de caché de pip usa solo los archivos de nivel superior (los `-r` anidados no entran en la clave; pip sigue resolviendo bien, solo se pierde precisión de la caché).
+- Gates nuevos, verificados en rojo contra el árbol real (quitando `python-requirements` de un paso) y con pruebas en `test/bats/gates-red.bats`: G-PY4 y G-PY5 en `test/gates/python-toolchain.bats`. G-PY5 vive ahí y no en `pinned-actions.bats` (que ya cubre el SHA por G3; el comentario de versión es lo único que añade).
+- **Entorno local:** el test `tunnel-up/down` de `test/bats/ssm-tunnel.bats` es sensible al timing en el montaje `/mnt/c` de WSL (el `grep` del log corre antes de que el `aws` falso en segundo plano escriba) y falla ahí también en un `HEAD` limpio. Pasa en el filesystem nativo de WSL: copiar el árbol a `~` y correr la suite desde allí. No es un fallo de F1 ni se corrige aquí.
 
 **Prompt para retomar (copiar tal cual):**
 
