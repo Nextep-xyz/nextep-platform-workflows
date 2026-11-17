@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Fake `npm` for the bats tests of package-publish.sh. Every call is appended to $FAKE_LOG (arguments only, never the environment).
+#   pack --dry-run --json   lists every file under the current directory (except node_modules) as npm would
+#   publish                 checks the token reached the environment, copies the --userconfig file to $FAKE_NPMRC_COPY and
+#                           creates the $FAKE_CA_STATE marker (the fake aws then reports the version as published)
+echo "npm $*" >>"${FAKE_LOG:-/dev/null}"
+case "$1" in
+  pack)
+    if [[ -n ${FAKE_PACK_FAIL:-} ]]; then echo "npm error pack failed" >&2; exit 1; fi
+    echo "npm notice fake pack notice" >&2
+    if [[ -n ${FAKE_PACK_EMPTY:-} ]]; then echo '[{"files": []}]'; exit 0; fi
+    find . -type f -not -path './node_modules/*' | sed 's|^\./||' | sort | jq -R '{path: .}' | jq -s '[{files: .}]'
+    ;;
+  publish)
+    shift
+    rc_file=""
+    while (($#)); do
+      if [[ $1 == --userconfig ]]; then rc_file=$2; shift; fi
+      shift
+    done
+    [[ -n ${CODEARTIFACT_AUTH_TOKEN:-} ]] || { echo "npm error ENEEDAUTH" >&2; exit 1; }
+    [[ -n $rc_file && -f $rc_file ]] && cp "$rc_file" "${FAKE_NPMRC_COPY:-/dev/null}"
+    if [[ -n ${FAKE_NPM_PUBLISH_FAIL:-} ]]; then echo "npm error E409 conflict" >&2; exit 1; fi
+    [[ -z ${FAKE_CA_STATE:-} ]] || : >"$FAKE_CA_STATE"
+    echo "+ fake-package@0.0.0"
+    ;;
+  *) echo "fake npm: unhandled call: $*" >&2; exit 2 ;;
+esac

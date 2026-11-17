@@ -49,5 +49,25 @@ s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(5); time.sleep(120)' "${FAKE_P
     if [[ " ${FAKE_MISSING:-} " == *" $(arg_after --secret-id) "* ]]; then echo "ResourceNotFoundException" >&2; exit 254; fi
     echo ok
     ;;
+  "codeartifact get-authorization-token")
+    if [[ -n ${FAKE_CA_TOKEN_FAIL:-} ]]; then echo "AccessDeniedException" >&2; exit 254; fi
+    printf '{"authorizationToken": "%s", "expiration": "2030-01-01T00:00:00+00:00"}
+' "${FAKE_CA_TOKEN-fake-ca-token-Zq81xK}"
+    ;;
+  "codeartifact get-repository-endpoint")
+    printf '{"repositoryEndpoint": "%s"}
+' "${FAKE_CA_ENDPOINT-https://example-domain-$(printf '%012d' 7).d.codeartifact.us-east-2.amazonaws.com/npm/example-repo/}"
+    ;;
+  "codeartifact describe-package-version")
+    if [[ -n ${FAKE_CA_DESCRIBE_FAIL:-} ]]; then echo "AccessDeniedException" >&2; exit 254; fi
+    # the version exists when FAKE_CA_EXISTS is set, or once the fake npm published it (FAKE_CA_STATE marker)
+    if [[ -n ${FAKE_CA_EXISTS:-} || -f ${FAKE_CA_STATE:-/nonexistent} ]]; then
+      printf '{"packageVersion": {"format": "npm", "version": "%s", "status": "%s"}}
+' "$(arg_after --package-version)" "${FAKE_CA_STATUS-Published}"
+    else
+      echo "ResourceNotFoundException: package version not found" >&2
+      exit 254
+    fi
+    ;;
   *) echo "fake aws: unhandled call: $*" >&2; exit 2 ;;
 esac
