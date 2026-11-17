@@ -37,7 +37,7 @@ YAML
 
 @test "every workflow-driven gate fails with '0 subjects' when no lego-aws workflow exists" {
   local g
-  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats; do
+  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats no-static-registry-token.bats package-publish-flow.bats; do
     run bats "$REPO_ROOT/test/gates/$g"
     [ "$status" -ne 0 ]
     [[ "$output" == *"0 subjects discovered"* ]] || { echo "$g: $output"; return 1; }
@@ -513,4 +513,180 @@ YAML
   run bats "$REPO_ROOT/test/gates/dora-telemetry.bats"
   [[ "$output" == *"lego-aws-bad.yml: has no 'telemetry-phone-home' job"* ]]
   [[ "$output" != *"lego-aws-package-ok.yml"* ]]
+}
+
+@test "GR15 red: a secret, a token input, a token in another env, a literal _authToken, an unmasked token and a publish with scripts on are named" {
+  mkdir -p "$FX/test/sandbox/callers" "$FX/.github/actions/other"
+  cat >"$FX/.github/workflows/lego-aws-package-bad.yml" <<'YAML'
+on:
+  workflow_call:
+    secrets:
+      NPM_TOKEN: { required: true }
+    inputs:
+      npm-token: { type: string, default: "" }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - run: echo ok
+        env: { TOKEN: "${{ secrets.NPM_TOKEN }}" }
+YAML
+  printf 'workflow: lego-aws-package-bad\ninputs:\n  registry-password: { type: string }\nsecrets:\n  NPM_TOKEN: { required: true }\n' >"$FX/contracts/lego-aws-package-bad.contract.yml"
+  cat >"$FX/test/sandbox/callers/package.yml" <<'YAML'
+on: { push: { tags: ["v*"] } }
+jobs:
+  p:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-package-bad.yml@v1
+    secrets: inherit
+YAML
+  cat >"$FX/.github/actions/other/action.yml" <<'YAML'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo ok
+      env: { NODE_AUTH_TOKEN: abc }
+YAML
+  cat >"$FX/scripts/package-bad.sh" <<'SH'
+#!/usr/bin/env bash
+token="$(aws codeartifact get-authorization-token --output json)"
+echo "token=$token" >>"$GITHUB_OUTPUT"
+printf '//host/:_authToken=%s\n' "$token" >"$HOME/.npmrc"
+npm publish --registry x
+SH
+  red no-static-registry-token.bats "contracts/lego-aws-package-bad.contract.yml: declares secrets"
+  [[ "$output" == *"lego-aws-package-bad.contract.yml: input 'registry-password' looks like a credential"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: declares workflow_call secrets"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: input 'npm-token' looks like a credential"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: line "*"reads the secrets context"* ]]
+  [[ "$output" == *"callers/package.yml: a caller of a package workflow passes secrets"* ]]
+  [[ "$output" == *".github/actions/other/action.yml: env 'NODE_AUTH_TOKEN' carries a registry token"* ]]
+  [[ "$output" == *"scripts/package-bad.sh: line 4 writes an _authToken that is not a \${VAR} reference"* ]]
+  [[ "$output" == *"scripts/package-bad.sh: line 4 persists registry configuration"* ]]
+  [[ "$output" == *"scripts/package-bad.sh: writes to GITHUB_OUTPUT (line 3) before masking"* || "$output" == *"scripts/package-bad.sh: asks for an authorization token but never masks it"* ]]
+  [[ "$output" == *"scripts/package-bad.sh: line 5: npm publish without --ignore-scripts"* ]]
+}
+
+@test "GR15 red: a token written to GITHUB_OUTPUT before it is masked is named with both lines" {
+  cat >"$FX/scripts/package-bad.sh" <<'SH'
+#!/usr/bin/env bash
+token="$(aws codeartifact get-authorization-token --output json)"
+echo "token=$token" >>"$GITHUB_OUTPUT"
+mask "$token"
+npm publish --ignore-scripts --registry x
+SH
+  red no-static-registry-token.bats "scripts/package-bad.sh: writes to GITHUB_OUTPUT (line 3) before masking the token (line 4)"
+}
+
+# A package workflow that breaks every flow rule of package-publish-flow.bats at once.
+bad_package_workflow() {
+  cat >"$FX/.github/workflows/lego-aws-package-bad.yml" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: example-org/nextep-platform-workflows/.github/actions/aws-oidc@main
+      - uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+  publish:
+    needs: [quality-and-security-gate]
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+      - uses: example-org/nextep-platform-workflows/.github/actions/aws-oidc@main
+      - id: registry
+        uses: example-org/nextep-platform-workflows/.github/actions/package-registry@main
+        with: { command: token }
+      - uses: example-org/nextep-platform-workflows/.github/actions/run-project-command@main
+        with: { label: build, command: make }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-registry@main
+        with: { command: precheck, x: "${{ steps.registry.outputs.token }}" }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-publish@main
+        with: { auth-token: "${{ steps.registry.outputs.token }}x" }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-publish@main
+        with: { auth-token: "${{ steps.registry.outputs.token }}" }
+YAML
+}
+
+@test "GR12 / GR-F1 / GR-F2 / GR-F3 red: each broken rule of a package workflow is named" {
+  bad_package_workflow
+  red package-publish-flow.bats "lego-aws-package-bad.yml: job 'quality-and-security-gate' does not validate the inputs and the tag trigger"
+  [[ "$output" == *"lego-aws-package-bad.yml: job 'publish' does not validate the inputs and the tag trigger"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: job quality-and-security-gate uses aws-oidc, package-registry or package-publish"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: job quality-and-security-gate holds id-token"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: job publish must not carry an if:"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: job publish lacks a step"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: the package-publish composite must be used exactly once (found 2)"* ]]
+  [[ "$output" == *"lego-aws-package-bad.yml: the token output of step 'registry' is also passed to"* ]]
+}
+
+@test "GR12 / GR-F2 red: a wrong order (check-manifest after setup, a caller command after the role) is named" {
+  cat >"$FX/.github/workflows/lego-aws-package-bad.yml" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-check@main
+        with: { command: validate }
+      - uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-check@main
+        with: { command: check-manifest }
+  publish:
+    needs: [quality-and-security-gate]
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps:
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-check@main
+        with: { command: validate }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-check@main
+        with: { command: check-manifest }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-check@main
+        with: { command: scan-tarball }
+      - uses: example-org/nextep-platform-workflows/.github/actions/aws-oidc@main
+      - uses: example-org/nextep-platform-workflows/.github/actions/run-project-command@main
+        with: { label: build, command: make }
+      - id: registry
+        uses: example-org/nextep-platform-workflows/.github/actions/package-registry@main
+        with: { command: token }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-registry@main
+        with: { command: precheck }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-publish@main
+        with: { auth-token: "${{ steps.registry.outputs.token }}" }
+      - uses: example-org/nextep-platform-workflows/.github/actions/package-registry@main
+        with: { command: verify }
+YAML
+  red package-publish-flow.bats "lego-aws-package-bad.yml: job 'quality-and-security-gate': check-manifest (GR12) must run before the project is set up"
+  [[ "$output" == *"lego-aws-package-bad.yml: job publish runs a caller command (step #4) after assuming the role"* ]]
+}
+
+@test "GR-F4 red: a publish job that cancels, and a caller that fires on a branch, a pull request, without tag pin or with wide permissions, are named" {
+  mkdir -p "$FX/test/sandbox/callers"
+  cat >"$FX/.github/workflows/lego-aws-package-bad.yml" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    concurrency: { group: "x", cancel-in-progress: true }
+    steps: [{ run: echo ok }]
+YAML
+  cat >"$FX/test/sandbox/callers/package.yml" <<'YAML'
+on:
+  push: { branches: [main] }
+  pull_request: {}
+permissions: write-all
+jobs:
+  p:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-package-bad.yml@main
+YAML
+  red package-publish-flow.bats "lego-aws-package-bad.yml: job publish needs a 'package-publish-*' concurrency group with cancel-in-progress: false"
+  [[ "$output" == *"callers/package.yml: a caller of a package workflow must fire only on the push of version tags"* ]]
+  [[ "$output" == *"callers/package.yml: a caller of a package workflow must grant exactly {id-token: write, contents: read}"* ]]
+  [[ "$output" == *"callers/package.yml: the reusable workflow must be pinned by tag"* ]]
 }
