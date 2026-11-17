@@ -5,7 +5,7 @@ load 'lib/gates'
 
 @test "G16: deploy-lock-* concurrency groups never cancel in progress" {
   gate_require_tools yq jq
-  gate_discover_lego_workflows G16
+  gate_discover_deploy_workflows G16
   local wf json job group cancel found
   for wf in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$wf")"

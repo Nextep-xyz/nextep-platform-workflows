@@ -23,7 +23,7 @@ setup() {
   export INPUT_PROJECT=shop INPUT_PACKAGE_DIR=pkg INPUT_PACKAGE_SCOPE=@example INPUT_TAG_PREFIX=shop-lib-v
   export INPUT_ROLE_ARN="arn:aws:iam::${OWNER}:role/shop-lib-publish"
   export INPUT_CODEARTIFACT_DOMAIN=example-domain INPUT_CODEARTIFACT_DOMAIN_OWNER="$OWNER" INPUT_CODEARTIFACT_REPOSITORY=example-repo
-  export INPUT_AWS_REGION=us-east-2 INPUT_PACKAGE_MANAGER=pnpm INPUT_NODE_VERSION=22 INPUT_INSTALL_DIRS=.
+  export INPUT_AWS_REGION=us-east-2 INPUT_PACKAGE_MANAGER=pnpm INPUT_NODE_VERSION=22 INPUT_INSTALL_DIRS=. INPUT_TEST_COMMAND="make test-ci"
   export REF_TYPE=tag REF_NAME=shop-lib-v1.2.3
 }
 
@@ -50,6 +50,19 @@ visible() { grep -v '^::add-mask::' <<<"$output" || true; }
     [[ "$output" == *"$frag"* ]] || { echo "missing: $frag"; echo "$output"; return 1; }
   done
   [[ "$output" != *"$OWNER"* ]]
+}
+
+@test "validate: an empty test-command is refused (a gate that checks nothing)" {
+  INPUT_TEST_COMMAND="" run "$SCRIPTS/package-publish.sh" validate
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'test-command' must not be empty"* ]]
+}
+
+@test "validate: the inputs also arrive as one INPUTS_JSON object (how the composites hand them over)" {
+  local k
+  for k in $(compgen -v INPUT_); do unset "$k"; done
+  INPUTS_JSON="$(jq -n --arg o "$OWNER" '{project:"shop","package-dir":"pkg","package-scope":"@example","tag-prefix":"shop-lib-v","role-arn":("arn:aws:iam::"+$o+":role/shop-lib-publish"),"codeartifact-domain":"example-domain","codeartifact-domain-owner":$o,"codeartifact-repository":"example-repo","aws-region":"us-east-2","package-manager":"pnpm","node-version":"22","install-dirs":".","test-command":"make test-ci"}')"     run "$SCRIPTS/package-publish.sh" validate
+  [ "$status" -eq 0 ]
 }
 
 @test "validate: a branch run is refused (the only trigger is a version tag)" {

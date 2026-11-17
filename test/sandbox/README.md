@@ -17,6 +17,7 @@ of a scratch repository in a **dev** account, set the repository variable `AWS_R
 | [`cicd-python.yml`](callers/cicd-python.yml) | `lego-aws-cicd`, `compute: ecs`, `python-version` + `python-requirements` (pinned requirements, pip cache), alembic as migration |
 | [`environment-deploy-ecs-no-db.yml`](callers/environment-deploy-ecs-no-db.yml) | `lego-aws-environment-deploy`, `compute: ecs`, `migrate: false` (a service with no database: no tunnel, no migration job; rollback by `image-tag`) |
 | [`cicd-telemetry.yml`](callers/cicd-telemetry.yml) | `lego-aws-cicd` reporting to a DORA collector: `telemetry-url`/`telemetry-audience` from variables, pinned by tag (`@v1`) |
+| [`package-publish.yml`](callers/package-publish.yml) | `lego-aws-package-publish`: push of a version tag, package in a subdirectory, role and CodeArtifact coordinates from variables, no token (v1.4.0) |
 
 **Status: NOT VERIFIED.** Nothing here has been run against a real account. The dev integration runs of the spec
 (`SPEC.md` P1.3/P1.4) are pending until a dev AWS account is available.

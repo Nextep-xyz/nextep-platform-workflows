@@ -102,6 +102,19 @@ gate_discover_lego_workflows() {
   gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-*.yml'
 }
 
+# The workflows of the deploy family (lego-aws-cicd, lego-aws-environment-deploy, and whatever else is named lego-aws-* but is not a
+# package workflow): they carry telemetry, parity tags, stamps and the deploy-lock. Gates about those rules use this discovery.
+# The exclusion is by name and in this direction on purpose: a new lego-aws-* workflow is a deploy workflow, subject to the
+# stricter rules, until someone declares its family by naming it lego-aws-package-*.
+gate_discover_deploy_workflows() {
+  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-*.yml' -not -name 'lego-aws-package-*.yml'
+}
+
+# The workflows of the package family (lego-aws-package-*): no environment, no database, no telemetry, an OIDC publishing role.
+gate_discover_package_workflows() {
+  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-package-*.yml'
+}
+
 # JSON view of a YAML file under GATES_ROOT.
 gate_json() { yq -o=json '.' "$GATES_ROOT/$1"; }
 

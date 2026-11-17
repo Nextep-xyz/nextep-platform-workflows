@@ -9,7 +9,7 @@ load 'lib/gates'
 
 @test "G-PY4: every setup-project step passes python-version and python-requirements from the workflow inputs" {
   gate_require_tools yq jq
-  gate_discover_lego_workflows G-PY4
+  gate_discover_deploy_workflows G-PY4
   local wf json found=0 declared job step version reqs
   for wf in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$wf")"

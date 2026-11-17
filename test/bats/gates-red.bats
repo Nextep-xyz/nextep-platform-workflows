@@ -469,3 +469,48 @@ YAML
   good_workflow
   red skip-database-stage.bats "no workflow with the migrate-before-deploy input was found"
 }
+
+# ---- package family (lego-aws-package-*) -------------------------------------------------------------------------------------------
+
+@test "G2 red: 'publish' with id-token outside a package workflow, and in a package workflow with extra permissions, are named" {
+  cat >"$WF" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps: [{ run: echo ok }]
+YAML
+  cat >"$FX/.github/workflows/lego-aws-package-bad.yml" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write, pull-requests: write }
+    steps: [{ run: echo ok }]
+YAML
+  red permissions.bats "lego-aws-bad.yml: job 'publish' has 'id-token: write' but this is not a package workflow"
+  [[ "$output" == *"lego-aws-package-bad.yml: job 'publish' may hold id-token: write only with exactly {contents: read, id-token: write}"* ]]
+}
+
+@test "deploy-family gates (G16, G17, T9, G18, G26, G-PY4) still judge lego-aws-bad.yml and leave a package workflow alone" {
+  good_workflow
+  cat >"$FX/.github/workflows/lego-aws-package-ok.yml" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps: [{ run: echo ok }]
+YAML
+  local g
+  for g in deploy-lock.bats parity.bats rollback-and-event-guards.bats; do
+    run bats "$REPO_ROOT/test/gates/$g"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"lego-aws-bad.yml"* ]] || { echo "$g: $output"; return 1; }
+    [[ "$output" != *"lego-aws-package-ok.yml"* ]] || { echo "$g judged the package workflow: $output"; return 1; }
+  done
+  run bats "$REPO_ROOT/test/gates/dora-telemetry.bats"
+  [[ "$output" == *"lego-aws-bad.yml: has no 'telemetry-phone-home' job"* ]]
+  [[ "$output" != *"lego-aws-package-ok.yml"* ]]
+}

@@ -23,7 +23,7 @@ load 'lib/gates'
 
 @test "G26: the gate job calls validate-inputs and the composite passes EVENT_NAME and REF_NAME through env:" {
   gate_require_tools yq jq
-  gate_discover_lego_workflows G26
+  gate_discover_deploy_workflows G26
   local workflows=("${GATE_SUBJECTS[@]}") wf
   for wf in "${workflows[@]}"; do
     gate_json "$wf" | jq -e '[.jobs["quality-and-security-gate"].steps[]?.uses // ""] | any(test("/\\.github/actions/validate-inputs@"))' >/dev/null ||

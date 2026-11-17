@@ -10,7 +10,7 @@ JOB=telemetry-phone-home
 
 @test "G17: each reusable workflow has an active telemetry-phone-home job wired as the spec requires" {
   gate_require_tools yq jq
-  gate_discover_lego_workflows G17
+  gate_discover_deploy_workflows G17
   local wf json cond
   for wf in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$wf")"
@@ -46,7 +46,7 @@ JOB=telemetry-phone-home
 
 @test "G17: each contract matches the activation (inputs, no secret, the job listed, no marker)" {
   gate_require_tools yq jq
-  gate_discover G17 contracts -maxdepth 1 -type f -name '*.contract.yml'
+  gate_discover G17 contracts -maxdepth 1 -type f -name '*.contract.yml' -not -name 'lego-aws-package-*.contract.yml'
   local c json
   for c in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$c")"
@@ -89,7 +89,7 @@ JOB=telemetry-phone-home
 
 @test "T8: the telemetry job runs no caller code and touches no cloud: one step, the internal composite, no checkout, no run" {
   gate_require_tools yq jq
-  gate_discover_lego_workflows T8
+  gate_discover_deploy_workflows T8
   local wf json
   for wf in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$wf")"
@@ -133,7 +133,7 @@ JOB=telemetry-phone-home
 # Discovery is on disk: a job added tomorrow is subject to it the day it appears.
 @test "T9: every job stamps its start (first step) and its end (last step, always) and exposes started-at/finished-at" {
   gate_require_tools yq jq
-  gate_discover_lego_workflows T9
+  gate_discover_deploy_workflows T9
   local wf json job
   for wf in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$wf")"

@@ -1,0 +1,193 @@
+# Reusable workflow: publishes an npm package to AWS CodeArtifact. Gate (inputs, tag == version, scope, tests, build, tarball scan)
+# -> publish (OIDC role, short-lived registry token, npm publish, verification).
+# Contract: contracts/lego-aws-package-publish.contract.yml (gate G12). The file name and the job names are IRREVERSIBLE: they are
+# part of the trust policy of the publishing role (job_workflow_ref). The caller decides WHEN it runs: push of a version tag
+# (<tag-prefix><version>) and grants: permissions: { id-token: write, contents: read }. The barrier is a tag ruleset plus a trust
+# policy conditioned on job_workflow_ref and on a sub limited to the tag (docs/runbook.md section 6, docs/iam/).
+# No token input and no secret (gate GR15): the registry token is minted per run. No telemetry in this version.
+name: lego-aws-package-publish
+
+on:
+  workflow_call:
+    inputs:
+      project:
+        description: "Project prefix (^[a-z][a-z0-9-]{1,15}$). Used in the concurrency group and reports."
+        type: string
+        required: true
+      package-dir:
+        description: "Directory of the package (the one with its package.json), relative to the repository root."
+        type: string
+        default: "."
+      package-scope:
+        description: "npm scope the package name must start with, for example @example."
+        type: string
+        required: true
+      tag-prefix:
+        description: "Prefix of the version tag; the tag of the run must be <tag-prefix><version>, for example shop-lib-v."
+        type: string
+        required: true
+      role-arn:
+        description: "Publishing role to assume through OIDC. Pass it from a repository variable, never a literal."
+        type: string
+        required: true
+      codeartifact-domain:
+        description: "CodeArtifact domain. Pass it from a repository variable (this repository is public)."
+        type: string
+        required: true
+      codeartifact-domain-owner:
+        description: "Account id that owns the CodeArtifact domain. Pass it from a repository variable."
+        type: string
+        required: true
+      codeartifact-repository:
+        description: "CodeArtifact repository to publish to. Pass it from a repository variable."
+        type: string
+        required: true
+      aws-region:
+        description: "AWS region."
+        type: string
+        default: "us-east-2"
+      package-manager:
+        description: "npm or pnpm (install and the caller commands; the publish itself is always npm publish)."
+        type: string
+        default: "pnpm"
+      node-version:
+        description: "Node version."
+        type: string
+        default: "22"
+      install-dirs:
+        description: "Comma separated package roots to install, each with its own lockfile."
+        type: string
+        default: "."
+      build-command:
+        description: "Build command, run from the repository root. Empty when the package ships as it is."
+        type: string
+        default: ""
+      test-command:
+        description: "Test command, run from the repository root. It must not be empty."
+        type: string
+        default: "make test-ci"
+
+jobs:
+  quality-and-security-gate:
+    name: quality-and-security-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate the inputs and the tag trigger
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        with:
+          command: validate
+          inputs-json: ${{ toJSON(inputs) }}
+      # GR12: the tag and the version of package.json agree, and the name is inside the scope, before anything else runs.
+      - name: Check the manifest against the tag
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        with:
+          command: check-manifest
+          inputs-json: ${{ toJSON(inputs) }}
+      - name: Set up the project
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: ${{ inputs.package-manager }}
+          node-version: ${{ inputs.node-version }}
+          install-dirs: ${{ inputs.install-dirs }}
+      - name: Test
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@main
+        with:
+          label: test
+          command: ${{ inputs.test-command }}
+          project: ${{ inputs.project }}
+          aws-region: ${{ inputs.aws-region }}
+      - name: Build
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@main
+        with:
+          label: build
+          command: ${{ inputs.build-command }}
+          project: ${{ inputs.project }}
+          aws-region: ${{ inputs.aws-region }}
+      - name: Scan the tarball
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        with:
+          command: scan-tarball
+          inputs-json: ${{ toJSON(inputs) }}
+
+  publish:
+    name: publish
+    needs: [quality-and-security-gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    # One publication at a time per package; a running one is never cancelled. A pending run replaced by a newer one is shown
+    # as cancelled: re-run it (runbook section 6).
+    concurrency:
+      group: package-publish-${{ inputs.project }}-${{ inputs.package-dir }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out the caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # This job holds id-token, so it re-checks what it is about to publish instead of trusting the previous runner.
+      - name: Validate the inputs and the tag trigger
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        with:
+          command: validate
+          inputs-json: ${{ toJSON(inputs) }}
+      - name: Check the manifest against the tag
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        with:
+          command: check-manifest
+          inputs-json: ${{ toJSON(inputs) }}
+      - name: Set up the project
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: ${{ inputs.package-manager }}
+          node-version: ${{ inputs.node-version }}
+          install-dirs: ${{ inputs.install-dirs }}
+      # The caller's build runs BEFORE the role is assumed: no cloud credentials exist in its environment.
+      - name: Build
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@main
+        with:
+          label: build
+          command: ${{ inputs.build-command }}
+          project: ${{ inputs.project }}
+          aws-region: ${{ inputs.aws-region }}
+      - name: Scan the tarball
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        with:
+          command: scan-tarball
+          inputs-json: ${{ toJSON(inputs) }}
+      - name: Assume the publishing role
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        with:
+          role-arn: ${{ inputs.role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+      - name: Get the registry token and endpoint
+        id: registry
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@main
+        with:
+          command: token
+          inputs-json: ${{ toJSON(inputs) }}
+      - name: Check the version does not exist yet
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@main
+        with:
+          command: precheck
+          inputs-json: ${{ toJSON(inputs) }}
+      - name: Publish to CodeArtifact
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-publish@main
+        with:
+          auth-token: ${{ steps.registry.outputs.token }}
+          endpoint: ${{ steps.registry.outputs.endpoint }}
+          inputs-json: ${{ toJSON(inputs) }}
+      - name: Verify the published version
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@main
+        with:
+          command: verify
+          inputs-json: ${{ toJSON(inputs) }}

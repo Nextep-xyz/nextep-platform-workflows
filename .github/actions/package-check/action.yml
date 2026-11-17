@@ -1,0 +1,24 @@
+name: package-check
+description: Checks of lego-aws-package-publish that need no cloud credentials - input shape and tag trigger, manifest (scope, tag equals version, no publishConfig.registry) and tarball scan.
+inputs:
+  command:
+    description: validate, check-manifest or scan-tarball.
+    required: true
+  inputs-json:
+    description: toJSON(inputs) of the calling workflow (it has no secret inputs).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run the check
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        COMMAND: ${{ inputs.command }}
+        INPUTS_JSON: ${{ inputs.inputs-json }}
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        case "$COMMAND" in validate | check-manifest | scan-tarball) ;; *) echo "::error::package-check: unknown command '$COMMAND'" >&2; exit 1 ;; esac
+        "$SCRIPTS/package-publish.sh" "$COMMAND"

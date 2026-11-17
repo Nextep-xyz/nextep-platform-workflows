@@ -1,0 +1,53 @@
+# Contract of .github/workflows/lego-aws-package-publish.yml - machine-readable source of truth (gate G12).
+# The file name and the job names are IRREVERSIBLE: they end up in the trust policy of the publishing role
+# (job_workflow_ref). Changing a job name or an input name is a MAJOR version.
+# There is no token input and no secret on purpose (gate GR15): the registry token is minted per run from the OIDC role.
+workflow: lego-aws-package-publish
+inputs:
+  project:
+    type: string
+    required: true
+  package-dir:
+    type: string
+    default: "."
+  package-scope:
+    type: string
+    required: true
+  tag-prefix:
+    type: string
+    required: true
+  role-arn:
+    type: string
+    required: true
+  codeartifact-domain:
+    type: string
+    required: true
+  codeartifact-domain-owner:
+    type: string
+    required: true
+  codeartifact-repository:
+    type: string
+    required: true
+  aws-region:
+    type: string
+    default: "us-east-2"
+  package-manager:
+    type: string
+    default: "pnpm"
+  node-version:
+    type: string
+    default: "22"
+  install-dirs:
+    type: string
+    default: "."
+  build-command:
+    type: string
+    default: ""
+  test-command:
+    type: string
+    default: "make test-ci"
+secrets: {}
+outputs: {}
+jobs:
+  - quality-and-security-gate
+  - publish

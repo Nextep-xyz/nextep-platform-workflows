@@ -54,7 +54,7 @@ load 'lib/gates'
 }
 
 @test "G18: every lego-aws workflow carries parity tags" {
-  gate_discover_lego_workflows G18
+  gate_discover_deploy_workflows G18
   local wf
   for wf in "${GATE_SUBJECTS[@]}"; do
     grep -qE '#[[:space:]]*parity:[[:space:]]*(P-|H-)' "$GATES_ROOT/$wf" || gate_violation "$wf" "no '# parity: <id>' tag in the workflow"

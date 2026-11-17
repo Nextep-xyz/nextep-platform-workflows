@@ -8,7 +8,7 @@
 #   package-publish.sh precheck         the version must not exist yet in the repository
 #   package-publish.sh publish          npm publish with the token only in this process' environment (GR15)
 #   package-publish.sh verify           describe-package-version must say Published; writes a summary without secrets
-# Inputs arrive as INPUT_<NAME> (dashes -> underscores) plus REF_TYPE and REF_NAME (github.ref_type / github.ref_name), all
+# Inputs arrive as INPUT_<NAME> (dashes -> underscores, or one INPUTS_JSON object) plus REF_TYPE and REF_NAME (github.ref_type / github.ref_name), all
 # through env:. `publish` also needs CODEARTIFACT_AUTH_TOKEN and CODEARTIFACT_ENDPOINT (outputs of `token`).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -16,6 +16,16 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$here/lib/common.sh"
 
 cmd="${1:?usage: package-publish.sh <validate|check-manifest|scan-tarball|token|precheck|publish|verify>}"
+
+# The composites hand every workflow input as one JSON object (INPUTS_JSON); expose them as INPUT_<NAME>. The workflow has
+# no secret inputs (GR15), so nothing sensitive travels in it.
+if [[ -n ${INPUTS_JSON:-} ]]; then
+  while IFS= read -r key; do
+    name="${key^^}"
+    printf -v "INPUT_${name//-/_}" '%s' "$(jq -r --arg k "$key" '.[$k] | tostring' <<<"$INPUTS_JSON")"
+    export "INPUT_${name//-/_}"
+  done < <(jq -r 'keys[]' <<<"$INPUTS_JSON")
+fi
 
 errs=()
 err() { errs+=("$*"); }
@@ -109,6 +119,8 @@ case "$cmd" in
         fi
       done
     fi
+    # The gate runs the tests of the package: an empty command would turn it into a gate that checks nothing.
+    [[ -n "$(val test-command)" ]] || err "input 'test-command' must not be empty (the gate runs the tests of the package; pass 'true' explicitly if there are none)"
     # The caller decides when it runs; the only legitimate trigger is the push of a version tag.
     [[ ${REF_TYPE:-} == tag ]] || err "this workflow publishes from a version tag only (got ref type '${REF_TYPE:-}', ref '${REF_NAME:-}')"
     finish

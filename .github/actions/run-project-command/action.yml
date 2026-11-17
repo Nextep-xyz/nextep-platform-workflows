@@ -1,0 +1,30 @@
+name: run-project-command
+description: Runs a command of the caller (test, build) from the repository root, with no cloud credentials. An empty command is skipped.
+inputs:
+  label:
+    description: Name of the command in the log.
+    required: true
+  command:
+    description: The command. It arrives through the environment, never interpolated into a script.
+    required: false
+    default: ""
+  project:
+    description: Project prefix.
+    required: true
+  aws-region:
+    description: AWS region (exposed as AWS_REGION to the command).
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run the command
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        LABEL: ${{ inputs.label }}
+        CMD: ${{ inputs.command }}
+        PROJECT: ${{ inputs.project }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/run-command.sh" "$LABEL"

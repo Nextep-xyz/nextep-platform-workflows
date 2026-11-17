@@ -1,0 +1,24 @@
+# Fictional caller (project "shop", package @example/shop-lib in packages/shop-lib). The caller decides WHEN it runs: the push of a
+# version tag <tag-prefix><version>. The tag ruleset of the repository and the trust policy of the publishing role are the barrier
+# (docs/runbook.md section 6, docs/iam/). The workflow exists from v1.4.0: pin it by tag so the role's job_workflow_ref matches.
+name: publish-shop-lib
+on:
+  push:
+    tags: ["shop-lib-v*"]
+permissions: { id-token: write, contents: read }
+jobs:
+  publish-shop-lib:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-package-publish.yml@v1
+    with:
+      project: shop
+      package-dir: packages/shop-lib
+      package-scope: "@example"
+      tag-prefix: shop-lib-v
+      # All of these come from repository variables: this repository is public, and so is the caller's YAML if the project is.
+      role-arn: ${{ vars.AWS_ROLE_ARN_PUBLISH }}
+      codeartifact-domain: ${{ vars.CODEARTIFACT_DOMAIN }}
+      codeartifact-domain-owner: ${{ vars.CODEARTIFACT_DOMAIN_OWNER }}
+      codeartifact-repository: ${{ vars.CODEARTIFACT_REPOSITORY }}
+      install-dirs: .
+      test-command: pnpm --filter @example/shop-lib run test
+      build-command: pnpm --filter @example/shop-lib run build
