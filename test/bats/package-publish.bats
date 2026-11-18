@@ -115,7 +115,7 @@ visible() { grep -v '^::add-mask::' <<<"$output" || true; }
   [[ "$output" == *"pkg/package.json sets publishConfig.registry"* ]]
 }
 
-@test "check-manifest: publishConfig without a registry is fine; a private package, a pre-release version and a missing name are refused" {
+@test "check-manifest: publishConfig without a registry is fine; a private package and a missing name are refused" {
   printf '{"name":"@example/shop-lib","version":"1.2.3","publishConfig":{"access":"restricted"}}\n' >pkg/package.json
   run "$SCRIPTS/package-publish.sh" check-manifest
   [ "$status" -eq 0 ]
@@ -123,10 +123,6 @@ visible() { grep -v '^::add-mask::' <<<"$output" || true; }
   run "$SCRIPTS/package-publish.sh" check-manifest
   [ "$status" -eq 1 ]
   [[ "$output" == *"\"private\": true"* ]]
-  printf '{"name":"@example/shop-lib","version":"1.2.3-rc.1"}\n' >pkg/package.json
-  REF_NAME=shop-lib-v1.2.3-rc.1 run "$SCRIPTS/package-publish.sh" check-manifest
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"must be X.Y.Z"* ]]
   printf '{"version":"1.2.3"}\n' >pkg/package.json
   run "$SCRIPTS/package-publish.sh" check-manifest
   [ "$status" -eq 1 ]
@@ -137,6 +133,39 @@ visible() { grep -v '^::add-mask::' <<<"$output" || true; }
   INPUT_PACKAGE_DIR=nothere run "$SCRIPTS/package-publish.sh" check-manifest
   [ "$status" -eq 1 ]
   [[ "$output" == *"package-dir 'nothere' has no package.json"* ]]
+}
+
+# ---- pre-releases: X.Y.Z-dev.N and nothing else ---------------------------------------------------------------------
+
+@test "check-manifest: a X.Y.Z-dev.N pre-release whose tag is <prefix><version> passes" {
+  printf '{"name":"@example/shop-lib","version":"1.2.3-dev.4"}\n' >pkg/package.json
+  REF_NAME=shop-lib-v1.2.3-dev.4 run "$SCRIPTS/package-publish.sh" check-manifest
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"@example/shop-lib@1.2.3-dev.4"* ]]
+  printf '{"name":"@example/shop-lib","version":"10.20.30-dev.0"}\n' >pkg/package.json
+  REF_NAME=shop-lib-v10.20.30-dev.0 run "$SCRIPTS/package-publish.sh" check-manifest
+  [ "$status" -eq 0 ]
+}
+
+@test "check-manifest: any other suffix is refused with a message that names the version and the one accepted form" {
+  local v
+  for v in 1.2.3-rc.1 1.2.3-beta.2 1.2.3-alpha 1.2.3-dev 1.2.3-dev. 1.2.3-dev.01 1.2.3-dev.1.2 1.2.3-DEV.1 1.2.3-dev.1-x 1.2.3+build.5 1.2.3-dev.1+b 1.2 v1.2.3; do
+    printf '{"name":"@example/shop-lib","version":"%s"}\n' "$v" >pkg/package.json
+    REF_NAME="shop-lib-v$v" run "$SCRIPTS/package-publish.sh" check-manifest
+    [ "$status" -eq 1 ] || { echo "accepted: $v"; echo "$output"; return 1; }
+    [[ "$output" == *"'$v'"* && "$output" == *"X.Y.Z-dev.N"* ]] || { echo "unclear message for $v: $output"; return 1; }
+  done
+}
+
+@test "GR12 holds with a suffix: a pre-release tag that differs from the version, or a stable tag on a pre-release version, fails naming both" {
+  printf '{"name":"@example/shop-lib","version":"1.2.3-dev.2"}\n' >pkg/package.json
+  REF_NAME=shop-lib-v1.2.3-dev.1 run "$SCRIPTS/package-publish.sh" check-manifest
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"shop-lib-v1.2.3-dev.1"* && "$output" == *"1.2.3-dev.2"* && "$output" == *"shop-lib-v1.2.3-dev.2"* ]]
+  REF_NAME=shop-lib-v1.2.3 run "$SCRIPTS/package-publish.sh" check-manifest
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"shop-lib-v1.2.3'"* && "$output" == *"1.2.3-dev.2"* ]]
+  [ ! -s "$FAKE_LOG" ] # no aws, no npm call
 }
 
 # ---- scan-tarball ---------------------------------------------------------------------------------------------------
@@ -243,6 +272,37 @@ visible() { grep -v '^::add-mask::' <<<"$output" || true; }
   # nothing persists: no .npmrc in the package, nothing in the runner env file
   [ ! -e pkg/.npmrc ] && [ ! -e .npmrc ]
   [ ! -s "$GITHUB_ENV" ]
+}
+
+@test "publish: a pre-release goes with --tag dev (npm demands a tag for a pre-release); the token is still only in the environment" {
+  printf '{"name":"@example/shop-lib","version":"1.2.3-dev.4"}\n' >pkg/package.json
+  REF_NAME=shop-lib-v1.2.3-dev.4 CODEARTIFACT_AUTH_TOKEN="$TOKEN" CODEARTIFACT_ENDPOINT="https://example-domain-${OWNER}.d.codeartifact.us-east-2.amazonaws.com/npm/example-repo/" \
+    run "$SCRIPTS/package-publish.sh" publish
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^npm publish' "$FAKE_LOG")" -eq 1 ]
+  grep '^npm publish' "$FAKE_LOG" | grep -qE -- ' --tag dev( |$)'
+  grep -qF -- '--ignore-scripts' "$FAKE_LOG"
+  ! grep -qF -- "$TOKEN" "$FAKE_LOG"
+}
+
+@test "publish: a stable version carries no --tag at all (the default dist-tag applies)" {
+  CODEARTIFACT_AUTH_TOKEN="$TOKEN" CODEARTIFACT_ENDPOINT="https://example-domain-${OWNER}.d.codeartifact.us-east-2.amazonaws.com/npm/example-repo/" \
+    run "$SCRIPTS/package-publish.sh" publish
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^npm publish' "$FAKE_LOG")" -eq 1 ]
+  ! grep '^npm publish' "$FAKE_LOG" | grep -qE -- '--tag|-dev'
+}
+
+@test "publish: a version with a suffix that is not -dev.N is refused before npm is called (the job that holds the token does not trust the previous step)" {
+  local v
+  for v in 1.2.3-rc.1 1.2.3-dev 1.2.3+build.5; do
+    printf '{"name":"@example/shop-lib","version":"%s"}\n' "$v" >pkg/package.json
+    CODEARTIFACT_AUTH_TOKEN="$TOKEN" CODEARTIFACT_ENDPOINT="https://example-domain-${OWNER}.d.codeartifact.us-east-2.amazonaws.com/npm/example-repo/" \
+      run "$SCRIPTS/package-publish.sh" publish
+    [ "$status" -eq 1 ] || { echo "published: $v"; return 1; }
+    [[ "$output" == *"X.Y.Z-dev.N"* && "$output" != *"$TOKEN"* ]]
+  done
+  ! grep -q '^npm publish' "$FAKE_LOG"
 }
 
 @test "publish: without the token or the endpoint it refuses to start" {

@@ -4,6 +4,8 @@
 # part of the trust policy of the publishing role (job_workflow_ref). The caller decides WHEN it runs: push of a version tag
 # (<tag-prefix><version>) and grants: permissions: { id-token: write, contents: read }. The barrier is a tag ruleset plus a trust
 # policy conditioned on job_workflow_ref and on a sub limited to the tag (docs/runbook.md section 6, docs/iam/).
+# Versions: X.Y.Z (default dist-tag) or X.Y.Z-dev.N (published with --tag dev); any other suffix is refused. The tag is always
+# <tag-prefix><version>, suffix included (GR12).
 # No token input and no secret (gate GR15): the registry token is minted per run. No telemetry in this version.
 name: lego-aws-package-publish
 

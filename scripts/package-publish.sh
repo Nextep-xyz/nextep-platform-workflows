@@ -2,11 +2,11 @@
 # Logic of lego-aws-package-publish: publishes an npm package to AWS CodeArtifact. One subcommand per step so each one is a
 # step of the workflow and a bats test with `aws` and `npm` fakes.
 #   package-publish.sh validate         shape of the inputs and of the triggering ref (a tag)
-#   package-publish.sh check-manifest   package.json: scope, version, tag == <tag-prefix><version> (GR12), no publishConfig.registry
+#   package-publish.sh check-manifest   package.json: scope, version (X.Y.Z or X.Y.Z-dev.N), tag == <tag-prefix><version> (GR12), no publishConfig.registry
 #   package-publish.sh scan-tarball     what `npm pack` would ship holds no CodeArtifact URL and no 12-digit account id
 #   package-publish.sh token            get-authorization-token + endpoint; the token is MASKED, then written to GITHUB_OUTPUT
 #   package-publish.sh precheck         the version must not exist yet in the repository
-#   package-publish.sh publish          npm publish with the token only in this process' environment (GR15)
+#   package-publish.sh publish          npm publish with the token only in this process' environment (GR15); --tag dev on a X.Y.Z-dev.N
 #   package-publish.sh verify           describe-package-version must say Published; writes a summary without secrets
 # Inputs arrive as INPUT_<NAME> (dashes -> underscores, or one INPUTS_JSON object) plus REF_TYPE and REF_NAME (github.ref_type / github.ref_name), all
 # through env:. `publish` also needs CODEARTIFACT_AUTH_TOKEN and CODEARTIFACT_ENDPOINT (outputs of `token`).
@@ -61,6 +61,11 @@ read_manifest() { # read_manifest -> sets MF_NAME and MF_VERSION; dies when ther
   MF_NAME="$(jq -r '.name // empty' "$manifest")"
   MF_VERSION="$(jq -r '.version // empty' "$manifest")"
 }
+
+# The only versions this workflow publishes: X.Y.Z (stable) and X.Y.Z-dev.N (pre-release, dist-tag "dev"). The numeric part of the
+# pre-release has no leading zero (semver), so npm accepts what this check accepts.
+STABLE_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+DEV_RE='^[0-9]+\.[0-9]+\.[0-9]+-dev\.(0|[1-9][0-9]*)$'
 
 aws_ca() { # aws_ca <args...>: aws codeartifact with the domain, the owner and the region of the inputs
   aws codeartifact "$1" --region "$(val aws-region)" --domain "$(val codeartifact-domain)" \
@@ -138,8 +143,8 @@ case "$cmd" in
     elif [[ $MF_NAME != "$scope"/* || ! ${MF_NAME#"$scope"/} =~ ^[a-z0-9][a-z0-9._-]*$ ]]; then
       err "package name '$MF_NAME' must be '$scope/<name>' (input package-scope)"
     fi
-    if [[ ! $MF_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-      err "package.json version '$MF_VERSION' must be X.Y.Z (no pre-release or build suffix in this version of the workflow)"
+    if [[ ! $MF_VERSION =~ $STABLE_RE && ! $MF_VERSION =~ $DEV_RE ]]; then
+      err "package.json version '$MF_VERSION' must be X.Y.Z or X.Y.Z-dev.N (the only pre-release suffix accepted is -dev.N, N a number without leading zeros; any other suffix and any build metadata is refused)"
     else
       # GR12: the tag and the manifest agree BEFORE anything is published, and the message names both values.
       expected="${prefix}${MF_VERSION}"
@@ -217,6 +222,14 @@ case "$cmd" in
     dir="$(package_dir)"
     scope="$(val package-scope)"
     host_path="${CODEARTIFACT_ENDPOINT#https:}" # //host/npm/repo/
+    # This job holds the token, so it re-checks the version instead of trusting check-manifest. npm refuses to publish a pre-release
+    # without an explicit dist-tag, and "latest" must never point at one: a -dev.N goes under "dev". A stable version gets no --tag.
+    tag_args=()
+    if [[ $MF_VERSION =~ $DEV_RE ]]; then
+      tag_args=(--tag dev)
+    elif [[ ! $MF_VERSION =~ $STABLE_RE ]]; then
+      die "package.json version '$MF_VERSION' must be X.Y.Z or X.Y.Z-dev.N: nothing was published"
+    fi
     npmrc="$(mktemp)"
     trap 'rm -f "$npmrc"' EXIT
     # The file holds a REFERENCE to the variable, never the token: npm expands ${CODEARTIFACT_AUTH_TOKEN} itself.
@@ -225,7 +238,7 @@ case "$cmd" in
     # The registry goes on the command line (highest precedence) for the default AND the scope: a project .npmrc with
     # `@scope:registry=` would otherwise win over --registry for a scoped package.
     (cd "$dir" && npm publish --ignore-scripts --userconfig "$npmrc" --registry "$CODEARTIFACT_ENDPOINT" \
-      "--${scope}:registry=${CODEARTIFACT_ENDPOINT}") || die "npm publish failed for $MF_NAME@$MF_VERSION"
+      "--${scope}:registry=${CODEARTIFACT_ENDPOINT}" "${tag_args[@]}") || die "npm publish failed for $MF_NAME@$MF_VERSION"
     log "published $MF_NAME@$MF_VERSION"
     ;;
 
