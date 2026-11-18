@@ -47,6 +47,14 @@ Los contratos máquina-legibles están en `contracts/`, la matriz de paridad en 
 - `continue-on-error` en el job y en el paso (G7 enmendado). El reenvío es *Re-run job* `telemetry-phone-home`, no reenviar un JSON.
 - El caller debe usar el workflow por **tag** (`@v1`, `@vX.Y.Z`): el colector valida el `job_workflow_ref`.
 
+**Enmienda Paquetes (v1.4.0).** Nueva familia `lego-aws-package-*`. `lego-aws-package-publish` publica un paquete npm en CodeArtifact al empujar un tag de versión. Contrato: `contracts/lego-aws-package-publish.contract.yml`; guía: `docs/runbook.md` §6.
+- El **nombre del archivo y los `name:` de sus jobs** (`quality-and-security-gate`, `publish`) son irreversibles: quedan en el `job_workflow_ref` de la trust policy del rol. Sin ambiente, sin BD, sin telemetría.
+- **Sin token ni secret** (GR15): el token de CodeArtifact se pide en cada run con el rol OIDC, se enmascara antes de usarse y vive solo en el `env:` del paso que ejecuta `npm publish` (`--ignore-scripts`, `.npmrc` efímero con una referencia `${VAR}`).
+- **Enmienda de §6.5/G2:** `publish` lleva `id-token: write`, solo con permisos exactos `{contents: read, id-token: write}` y solo en `lego-aws-package-*`.
+- **Versiones:** `X.Y.Z` y `X.Y.Z-dev.N` (publicada con `--tag dev`); cualquier otro sufijo se rechaza nombrando la versión. El tag es siempre `<tag-prefix><versión>`, sufijo incluido (GR12). La barrera real es el ruleset de tags del repo consumidor **más** la trust policy (`job_workflow_ref` + `sub` acotado al tag); ninguna basta sola.
+- **Lint:** no hay paso ni input de lint; va dentro de `test-command`. Sin telemetría.
+- Gates por disco: GR12, GR-F1..F4 (`test/gates/package-publish-flow.bats`) y GR15 (`test/gates/no-static-registry-token.bats`); G2 y G12 los descubren por el nombre `lego-aws-package-*`.
+
 ---
 
 ## 1. Problema y alcance
@@ -851,6 +859,23 @@ ubicación del colector (es un input), orden de implementación de `deploy-mode`
 | P2 (lambdalith + DSQL, H1–H4) | **Hecha** (local, rama `feat/p2-workflows-lambdalith-dsql`, sin push) |
 | Adopción por los consumidores | Se rastrea en los repositorios consumidores, no aquí; requiere `v1` y las variables `AWS_ROLE_ARN_*` del caller |
 | F0 – F3 (diseño original) | Superadas por la enmienda §0; Azure sigue en backlog |
+| Paquetes (`lego-aws-package-publish`, v1.4.0) | **Hecha** (local, rama `feat/workflow-de-publicacion-de-paquetes`): workflow, scripts, gates, pre-releases `-dev.N`, ejemplos IAM y runbook §6. **Pendiente:** release v1.4.0 con `release.yml`; run real en `dev` |
+
+### Estado de paquetes (2026-11-18)
+
+**Hecho:** `lego-aws-package-publish` (contrato, workflow, `scripts/package-publish.sh`, composites `package-check`/`package-registry`/`package-publish`), gates GR12, GR-F1..F4 y GR15, ejemplos IAM con su test, pre-releases `X.Y.Z-dev.N` (`--tag dev` solo en pre-release; cualquier otro sufijo se rechaza) y `docs/runbook.md` §6 con la tabla de errores en §3.
+**Verificado:** la suite completa con `aws` y `npm` falsos (bats 1.11.1, jq 1.8.2, yq 4.54.3, shellcheck 0.11.0 y actionlint 1.7.12, los pinados en `scripts/lib/tools.env`). Cada gate existente que juzga el workflow de paquetes (G2, G3, G5, G9, G12) se comprobó en rojo y nombra el archivo.
+**NO VERIFICADO:** el conjunto exacto de acciones de CodeArtifact del rol, `job_workflow_ref` como condición de IAM (ADR 0001) y la integración contra un registry real (lista completa en `docs/runbook.md` §6.7).
+**Pendiente:** cortar v1.4.0 (solo con `release.yml`, nunca a mano); registry y rol reales en `dev`; el ruleset de tags del consumidor.
+
+**Prompt para retomar (paquetes):**
+
+```text
+Lee AGENTS.md, SPEC.md §0 (Enmienda Paquetes) y §14, y docs/runbook.md §6 de nextep-platform-workflows. v1.4.0 ya está liberada
+(compruébalo con `git tag`; nunca crees ni muevas un tag a mano). Con el registry y el rol de dev reales: corre test/sandbox/callers/package-publish.yml
+desde un repo de prueba, resuelve cada punto de docs/runbook.md §6.7 y mueve lo confirmado de NO VERIFICADO a verificado (con la salida real).
+Si la realidad contradice el spec, detente y actualiza el spec primero. No nombres proyectos ni cuentas internas: el repo es público.
+```
 
 **Hecho (2026-10-29):** `README.md` (la idea), `SPEC.md` (este documento) y `AGENTS.md` redactados a partir de la
 lectura de pipelines internos preexistentes (inventario en un repositorio privado). **No hay workflows ni scripts implementados.**
