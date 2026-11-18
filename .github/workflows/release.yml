@@ -43,12 +43,22 @@ jobs:
       contents: write
       checks: read
     steps:
+      # The push credential is a token of the release GitHub App: no human owner, valid for one hour, limited to THIS repository (no
+      # `owner`, no `repositories`: gate RA10). GITHUB_TOKEN cannot push commits that touch .github/workflows (the release rewrites them),
+      # hence `workflows: write`. Setup and rotation of the key: docs/runbook.md section 8.7.
+      - name: Mint the release token
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-workflows: write
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
-          # GITHUB_TOKEN cannot push commits that touch .github/workflows (the release rewrites them): a token with the `workflows` permission is required.
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
       - name: Guard the branch and the inputs
         env:
           INPUT_BUMP: ${{ inputs.bump }}
@@ -81,7 +91,7 @@ jobs:
       - name: Require a green CI on the commit
         if: steps.plan.outputs.release == 'true'
         env:
-          # Read-only use of the job token (checks: read). The push below uses RELEASE_TOKEN, set on the checkout.
+          # Read-only use of the job token (checks: read). The push below uses the release App token, set on the checkout.
           GH_TOKEN: ${{ github.token }}
           SOURCE_SHA: ${{ github.sha }}
         run: scripts/ci/require-green-ci.sh

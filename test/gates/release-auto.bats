@@ -4,7 +4,8 @@
 #   RA5  dry_run has no effects: every step that runs the suite, builds the tree or changes git is gated by it;
 #   RA7  the non-surface list lives twice (scripts/next-version.sh and docs/release-surface.yml) and neither rots;
 #   RA9  the guard of a green CI reads the required jobs from self-ci.yml and runs before anything is released;
-#   RA10 least privilege: contents: write + checks: read, RELEASE_TOKEN only for the checkout, the job token only in the CI guard.
+#   RA10 least privilege: contents: write + checks: read, the push credential is a release GitHub App token (no personal token) that only
+#        feeds the checkout, the App key only feeds the step that mints it, the job token only in the CI guard.
 # (RA2, the shape of the tags, is T10 in release-pins.bats.)
 
 load 'lib/gates'
@@ -127,7 +128,7 @@ release_workflows() {
   gate_finish RA9
 }
 
-@test "RA10: a release workflow holds exactly contents: write + checks: read; RELEASE_TOKEN only feeds the checkout; the job token only feeds the CI guard" {
+@test "RA10: a release workflow holds exactly contents: write + checks: read; the App token only feeds the checkout and the App key only the step that mints it; the job token only feeds the CI guard" {
   gate_require_tools yq jq
   release_workflows RA10
   local f name
@@ -137,10 +138,30 @@ release_workflows() {
       gate_json "$f" | jq -e --arg j "$name" '.jobs[$j].permissions == {"contents": "write", "checks": "read"}' >/dev/null ||
         gate_violation "$f" "job '$name' cuts releases and must hold exactly {contents: write, checks: read} (got $(gate_json "$f" | jq -c --arg j "$name" '.jobs[$j].permissions'))"
     done < <(gate_json "$f" | jq -r '.jobs | to_entries[] | select([.value.steps[]? | select((.run // "") | test("release\\.sh|git\\s+tag"))] | length > 0) | .key')
-    # RELEASE_TOKEN: only in the `token:` of actions/checkout
-    while IFS= read -r name; do
-      gate_violation "$f" "step '$name' uses RELEASE_TOKEN outside the token of actions/checkout: the push credential must not reach any other step"
-    done < <(gate_json "$f" | jq -r '.jobs[]?.steps[]? | select(tostring | contains("RELEASE_TOKEN")) | select(((.uses // "") | startswith("actions/checkout@")) and ((.with.token // "") | contains("secrets.RELEASE_TOKEN")) and ((del(.with.token) | tostring | contains("RELEASE_TOKEN")) | not) | not) | (.name // .uses // "(unnamed step)")')
+    # The push credential is a token of the release GitHub App (no human owner), never a personal access token.
+    gate_json "$f" | jq -e '[.. | strings | select(contains("RELEASE_TOKEN"))] | length == 0' >/dev/null ||
+      gate_violation "$f" "RELEASE_TOKEN (a personal access token) is back: the push credential is the release GitHub App token (actions/create-github-app-token)"
+    local app_id
+    app_id="$(gate_json "$f" | jq -r '[.jobs[]?.steps[]? | select((.uses // "") | startswith("actions/create-github-app-token@")) | (.id // "")] | .[0] // empty')"
+    if [[ -z $app_id ]]; then
+      gate_violation "$f" "no step with id uses actions/create-github-app-token: nothing mints the push credential"
+    else
+      # the App key: only in the private-key of the step that mints the token
+      while IFS= read -r name; do
+        gate_violation "$f" "step '$name' uses RELEASE_APP_PRIVATE_KEY outside the private-key of actions/create-github-app-token: the App key must not reach any other step"
+      done < <(gate_json "$f" | jq -r '.jobs[]?.steps[]? | select(tostring | contains("RELEASE_APP_PRIVATE_KEY")) | select(((.uses // "") | startswith("actions/create-github-app-token@")) and ((.with["private-key"] // "") | contains("secrets.RELEASE_APP_PRIVATE_KEY")) and ((del(.with["private-key"]) | tostring | contains("RELEASE_APP_PRIVATE_KEY")) | not) | not) | (.name // .uses // "(unnamed step)")')
+      # the token it mints: exactly contents + workflows (write), this repository only, revoked at the end of the job
+      gate_json "$f" | jq -e --arg id "$app_id" '[.jobs[]?.steps[]? | select(.id == $id) | .with | to_entries[] | select(.key | startswith("permission-")) | "\(.key)=\(.value)"] | sort == ["permission-contents=write", "permission-workflows=write"]' >/dev/null ||
+        gate_violation "$f" "the step '$app_id' must request exactly permission-contents: write and permission-workflows: write (got $(gate_json "$f" | jq -c --arg id "$app_id" '[.jobs[]?.steps[]? | select(.id == $id) | .with | to_entries[] | select(.key | startswith("permission-")) | "\(.key)=\(.value)"] | sort'))"
+      gate_json "$f" | jq -e --arg id "$app_id" '[.jobs[]?.steps[]? | select(.id == $id) | .with | select(has("owner") or has("repositories") or has("enterprise") or ((."skip-token-revoke" // "false" | tostring) != "false"))] | length == 0' >/dev/null ||
+        gate_violation "$f" "the step '$app_id' widens the token (owner, repositories, enterprise) or keeps it after the job (skip-token-revoke): it must be limited to this repository and revoked"
+      # the minted token: only in the token of actions/checkout
+      while IFS= read -r name; do
+        gate_violation "$f" "step '$name' uses the release App token outside the token of actions/checkout: the push credential must not reach any other step"
+      done < <(gate_json "$f" | jq -r --arg id "$app_id" --arg ref "steps.$app_id.outputs.token" '.jobs[]?.steps[]? | select((.id // "") != $id) | select(tostring | contains($ref)) | select(((.uses // "") | startswith("actions/checkout@")) and ((.with.token // "") | contains($ref)) and ((del(.with.token) | tostring | contains($ref)) | not) | not) | (.name // .uses // "(unnamed step)")')
+      gate_json "$f" | jq -e --arg ref "steps.$app_id.outputs.token" '[.jobs[]?.steps[]? | select(((.uses // "") | startswith("actions/checkout@")) and ((.with.token // "") | contains($ref)))] | length > 0' >/dev/null ||
+        gate_violation "$f" "no actions/checkout takes its token from steps.$app_id.outputs.token: the push would use the job token, which cannot push workflow files"
+    fi
     # the job token: only in the step that runs the CI guard
     while IFS= read -r name; do
       gate_violation "$f" "step '$name' uses the job token (github.token / GITHUB_TOKEN) outside the CI guard: only the read-only guard may hold it"

@@ -313,7 +313,7 @@ Commit subjects shown there are neutralised (workflow commands and markup are es
 | `0 surface files discovered` / `0 contracts discovered` | The tree has no surface or no contracts: the decision would be over nothing | The checkout or the tree is broken. Do not release |
 | `the release plan could not be computed` | Any of the above in `next-version.sh` (the reason is in the log and in the summary) | Read the line before it |
 | `verify-release-tags: ... do not point to the same commit` / `not the released source` | **The tags are already published.** The check ran after the push | Do not retry and do not move anything. Compare what the summary lists and ask the maintainers |
-| The checkout fails with an authentication error | The release token is missing or expired | Rotate it (it needs the `workflows` permission); it is not covered by this workflow |
+| The `Mint the release token` step or the checkout fails with an authentication error | The release GitHub App is not installed on this repository, its key was rotated or deleted, or `RELEASE_APP_ID` is wrong | Section 8.7 lists each message and the rotation; there is no personal token to renew |
 
 ### 8.6 Rules that do not change
 
@@ -321,4 +321,19 @@ Commit subjects shown there are neutralised (workflow commands and markup are es
 - **A published release is not undone.** A defect is fixed with the next patch. What can be reverted is the code, with a normal commit.
 - The tags are `vX.Y.Z` and `vX` only: the telemetry collector rejects anything else (`vX.Y`, a pre-release, a sha). Pre-releases (`-dev.N`) of the *packages* (section 6) are a different thing and live in the consumers' repositories.
 - Every step that runs the suite, builds the tree or changes git is gated by `dry_run`, and the job holds only `contents: write` and `checks: read`; the release token is used for the checkout and nowhere else (gates RA5 and RA10).
+
+### 8.7 The push credential: the release GitHub App
+
+`release.yml` pushes commits that touch `.github/workflows`, which `GITHUB_TOKEN` cannot do. The credential is a token of the **release GitHub App**
+(`actions/create-github-app-token`): one hour, this repository only, `contents: write` + `workflows: write`, revoked when the job ends.
+No person owns it: a suspended or departed account does not stop a release. A personal token (`RELEASE_TOKEN`) must **not** come back (gate RA10).
+
+| Piece | Where | Note |
+|---|---|---|
+| The App (`Nextep-xyz` → Settings → Developer settings → GitHub Apps) | Organization | Installed **only** on this repository. Permissions: Contents RW, Workflows RW, Metadata R. Webhook off. Keep at least two organization owners |
+| `RELEASE_APP_ID` | Repository **variable** | Not a secret |
+| `RELEASE_APP_PRIVATE_KEY` | Repository **secret** | The only long-lived secret of the release. Rotate it: *App → Credentials → Key pairs → Generate*, then `Get-Content <key>.pem -Raw \| gh secret set RELEASE_APP_PRIVATE_KEY`, run a `dry_run`, delete the old key in the App and the `.pem` from disk. Rotation date: write it here when you do it |
+
+Errors of the first step (`Mint the release token`): `Not Found` = the App is not installed on this repository; `A JSON web token could not be decoded` = the key is
+malformed or from another App; `Resource not accessible by integration` = the App lacks `workflows: write`.
 

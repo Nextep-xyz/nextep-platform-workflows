@@ -125,11 +125,39 @@ green() {
   red release-auto.bats 'RA10:' "release.yml: job 'release' cuts releases and must hold exactly {contents: write, checks: read}"
 }
 
-@test "RA10 red: RELEASE_TOKEN in a step other than the checkout, and the job token outside the guard, are named" {
-  yq -i '(.jobs.release.steps[] | select(.name == "Verify the published tags") | .env.PUSH_TOKEN) = "${{ secrets.RELEASE_TOKEN }}"' "$WF"
+@test "RA10 red: the release App token outside the checkout, and the job token outside the guard, are named" {
+  yq -i '(.jobs.release.steps[] | select(.name == "Verify the published tags") | .env.PUSH_TOKEN) = "${{ steps.app-token.outputs.token }}"' "$WF"
   yq -i '(.jobs.release.steps[] | select(.name == "Build the release tree") | .env.GH_TOKEN) = "${{ github.token }}"' "$WF"
-  red release-auto.bats 'RA10:' "release.yml: step 'Verify the published tags' uses RELEASE_TOKEN outside the token of actions/checkout" \
+  red release-auto.bats 'RA10:' "release.yml: step 'Verify the published tags' uses the release App token outside the token of actions/checkout" \
     "release.yml: step 'Build the release tree' uses the job token"
+}
+
+@test "RA10 red: the personal RELEASE_TOKEN coming back is named" {
+  yq -i '(.jobs.release.steps[] | select(.name == "Verify the published tags") | .env.PUSH_TOKEN) = "${{ secrets.RELEASE_TOKEN }}"' "$WF"
+  red release-auto.bats 'RA10:' "release.yml: RELEASE_TOKEN (a personal access token) is back"
+}
+
+@test "RA10 red: the App key in a step other than the one that mints the token is named" {
+  yq -i '(.jobs.release.steps[] | select(.name == "Verify the published tags") | .env.APP_KEY) = "${{ secrets.RELEASE_APP_PRIVATE_KEY }}"' "$WF"
+  red release-auto.bats 'RA10:' "release.yml: step 'Verify the published tags' uses RELEASE_APP_PRIVATE_KEY outside the private-key of actions/create-github-app-token"
+}
+
+@test "RA10 red: an App token with an extra permission, a widened owner or a kept token are named" {
+  yq -i '(.jobs.release.steps[] | select(.id == "app-token") | .with."permission-administration") = "write"' "$WF"
+  yq -i '(.jobs.release.steps[] | select(.id == "app-token") | .with.owner) = "Nextep-xyz"' "$WF"
+  red release-auto.bats 'RA10:' "release.yml: the step 'app-token' must request exactly permission-contents: write and permission-workflows: write" \
+    "release.yml: the step 'app-token' widens the token"
+  yq -i 'del(.jobs.release.steps[] | select(.id == "app-token") | .with.owner)' "$WF"
+  yq -i 'del(.jobs.release.steps[] | select(.id == "app-token") | .with."permission-administration")' "$WF"
+  yq -i '(.jobs.release.steps[] | select(.id == "app-token") | .with."skip-token-revoke") = true' "$WF"
+  red release-auto.bats 'RA10:' "release.yml: the step 'app-token' widens the token (owner, repositories, enterprise) or keeps it after the job"
+}
+
+@test "RA10 red: a workflow with no App token step, and a checkout that does not use it, are named" {
+  yq -i '(.jobs.release.steps[] | select((.uses // "") | test("^actions/checkout@")) | .with.token) = "${{ github.token }}"' "$WF"
+  red release-auto.bats 'RA10:' "release.yml: no actions/checkout takes its token from steps.app-token.outputs.token"
+  yq -i 'del(.jobs.release.steps[] | select(.id == "app-token"))' "$WF"
+  red release-auto.bats 'RA10:' "release.yml: no step with id uses actions/create-github-app-token"
 }
 
 @test "RA10 red: workflow-level permissions are named" {
