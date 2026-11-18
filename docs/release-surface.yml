@@ -1,0 +1,33 @@
+# Paths that do NOT count as "something to release" (scripts/next-version.sh). Everything versioned that is not listed here IS release
+# surface: a new file, written by someone who never read this list, triggers a release by default (a release too many is cheap;
+# a change that is never released is not).
+#
+# The list lives TWICE: here, with the reason of each entry, and in scripts/next-version.sh (NON_SURFACE), which is the one that
+# decides. The gate in test/gates/release-auto.bats fails if the two differ, if an entry matches no versioned file (stale),
+# or if the discovery finds no surface at all.
+#
+# Pattern syntax: `dir/**` = everything under dir; a pattern without `/` matches the repository root only; anything else is an
+# exact path.
+non-surface:
+  - pattern: "docs/**"
+    reason: Documentation, ADRs, IAM examples and the parity matrix; no workflow or composite reads them at run time.
+  - pattern: "test/**"
+    reason: The suite, fixtures and sandbox callers; consumers never execute them.
+  - pattern: "*.md"
+    reason: Root documents (README, SPEC, AGENTS, CLAUDE); prose only.
+  - pattern: ".gitattributes"
+    reason: Line-ending rules of this repository.
+  - pattern: ".github/CODEOWNERS"
+    reason: Review ownership of this repository; no effect on a caller.
+  - pattern: ".github/workflows/release.yml"
+    reason: The release machinery itself; a caller never invokes it.
+  - pattern: ".github/workflows/self-ci.yml"
+    reason: The CI of this repository, not reusable.
+  - pattern: "scripts/release.sh"
+    reason: Builds the release tree; runs only inside release.yml.
+  - pattern: "scripts/next-version.sh"
+    reason: Computes the release version; runs only inside release.yml.
+  - pattern: "scripts/ci/**"
+    reason: Installs the CI tools of this repository (self-ci and release); no composite calls it.
+  - pattern: "scripts/lib/tools.env"
+    reason: Versions of the CI tools; its only reader is scripts/ci/install-tools.sh. (versions.env is NOT listed: install-ssm-plugin.sh reads it at run time.)
