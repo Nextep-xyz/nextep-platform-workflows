@@ -92,6 +92,18 @@ install_with() { PYTHON_REQUIREMENTS="$1" run "$SCRIPTS/python-install.sh"; }
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
+@test "G-PY3: several extras are not a range, but a range after the extras still is" {
+  printf '%s\n' 'moto[cognitoidp,s3]==5.2.5' >py/extras-ok.txt
+  install_with "py/extras-ok.txt"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  for spec in 'moto[cognitoidp,s3]>=5.0' 'moto[cognitoidp,s3]==5.2.5,<6' 'moto[s3]==5.*'; do
+    printf '%s\n' "$spec" >py/extras-bad.txt
+    install_with "py/extras-bad.txt"
+    [ "$status" -eq 1 ] || { echo "'$spec' was accepted"; return 1; }
+    [[ "$output" == *"range specifier"* ]] || { echo "'$spec': wrong message: $output"; return 1; }
+  done
+}
+
 @test "python-install: a missing or empty list, a non-file and a hostile path are refused" {
   PYTHON_REQUIREMENTS="" run "$SCRIPTS/python-install.sh"
   [ "$status" -eq 1 ]

@@ -144,7 +144,10 @@ check_line() {
   : "$marker"
   spec="$(sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//' <<<"$spec")"
 
-  if [[ $spec =~ $range_re ]] || [[ $spec == *,* ]]; then
+  # A comma separates the clauses of a range (">=1,<2"), but it also separates several extras ("moto[s3,cognitoidp]==5.2.5"
+  # is a valid, fully pinned requirement). The extras are cut out before looking for the comma.
+  spec_no_extras="$(sed -E 's/\[[^]]*\]//g' <<<"$spec")"
+  if [[ $spec =~ $range_re ]] || [[ $spec_no_extras == *,* ]]; then
     err "$where: range specifier is not allowed, pin the version with '==' (got '$spec')"
     return 0
   fi
