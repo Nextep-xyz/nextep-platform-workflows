@@ -29,9 +29,9 @@ load 'helpers'
   local f="$REPO_ROOT/docs/iam/package-publish-trust-policy.example.json"
   jq -e . "$f" >/dev/null
   jq -e '.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"' "$f" >/dev/null
-  jq -e '.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:job_workflow_ref"] | (type == "array" or type == "string") and ([.] | flatten | all(test("/\.github/workflows/lego-aws-package-publish\.yml@refs/tags/v[0-9]")))' "$f" >/dev/null
+  jq -e '.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:job_workflow_ref"] | (type == "array" or type == "string") and ([.] | flatten | all(test("/\\.github/workflows/lego-aws-package-publish\\.yml@refs/tags/v[0-9]")))' "$f" >/dev/null
   # the subject is the repository at a tag (a prefix + *), not a branch, not a bare repo:*
-  jq -e '.Statement[0].Condition.StringLike["token.actions.githubusercontent.com:sub"] | test("^repo:[^*]+:ref:refs/tags/[A-Za-z0-9._-]+\*$")' "$f" >/dev/null
+  jq -e '.Statement[0].Condition.StringLike["token.actions.githubusercontent.com:sub"] | test("^repo:[^*]+:ref:refs/tags/[A-Za-z0-9._-]+\\*$")' "$f" >/dev/null
   ! jq -e '.Statement[0].Condition | .. | strings | select(test("refs/heads/"))' "$f" >/dev/null
 }
 
