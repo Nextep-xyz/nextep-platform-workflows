@@ -30,4 +30,4 @@ non-surface:
   - pattern: "scripts/ci/**"
     reason: Installs the CI tools of this repository (self-ci and release); no composite calls it.
   - pattern: "scripts/lib/tools.env"
-    reason: Versions of the CI tools; its only reader is scripts/ci/install-tools.sh. (versions.env is NOT listed: install-ssm-plugin.sh reads it at run time.)
+    reason: "Versions of the CI tools; its only reader is scripts/ci/install-tools.sh. (versions.env is NOT listed because install-ssm-plugin.sh reads it at run time.)"
