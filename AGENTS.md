@@ -88,7 +88,13 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
   - Telemetría: solo los campos de `contracts/telemetry.schema.json` (`additionalProperties: false`; su hash canónico lo fija el gate T1). Añadir un campo = nueva `schema_version` en este repo **y** en el colector. Nada de personas (`actor`) ni firmas con secreto compartido (el diseño anterior, sustituido). `telemetry-audience` es un slug sin puntos (T2): nunca una audiencia de una nube. Spec: `docs/specs/telemetria-dora/SPEC.md`.
 - **Scripts:** bash con `set -euo pipefail`, `shellcheck` limpio y un test `bats` con `aws`/`az`/`curl` falsos.
 - **Releases:** los tags `vX.Y.Z` y el alias `vX` los crea **solo** `release.yml` (sus rulesets se configuran a mano en GitHub). **Nunca** crees, muevas ni
-  borres un tag a mano. Un cambio incompatible = versión mayor.
+  borres un tag a mano, ni siquiera para probar. `release.yml` es **un solo workflow manual** (`workflow_dispatch` desde `main`): `scripts/next-version.sh` compara `main`
+  con el último release (archivos de superficie, contratos, tipos de commit) y **calcula la versión** o dice que no hay nada que liberar; exige el CI verde (los jobs requeridos
+  se leen de `self-ci.yml`, no se listan a mano); `dry_run` publica el plan y no cambia nada; al final verifica en el remoto que `vX.Y.Z` y `vX` son el mismo commit.
+  Procedimiento y errores: `docs/runbook.md` §8. Reglas: **empieza siempre por `dry_run`**; una versión **mayor nunca es automática** (un cambio incompatible exige `version`
+  explícita **y** actualizar antes las trust policies de las cuentas, que listan `@refs/tags/v1`); la lista de no-superficie vive en `scripts/next-version.sh` **y** en
+  `docs/release-surface.yml` (dos veces, con su motivo; el gate RA7 las compara); un tag con forma anómala (sin padre único o sin el asunto canónico) detiene el cálculo. Un release
+  publicado no se deshace: un defecto se corrige con el siguiente patch.
 - **No modifiques repos de proyectos consumidores.** Se prueba en `test/sandbox/` con datos ficticios.
 - **Una fase = un commit coherente.** No empieces otra con la anterior en rojo. Al cerrar, actualiza
   el estado de ejecución (hecho, pendiente, prompt para retomar) donde viva el spec de la fase.
@@ -122,6 +128,6 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 | `scripts/` | Lógica en bash, con tests (`test/bats/`) |
 | `contracts/` | Contrato de cada workflow (lo comprueba el gate `contract-sync`) |
 | `test/` | bats, gates por disco (`test/gates/`), fixtures, `sandbox/callers/` |
-| `docs/` | `adr/` (spikes, NOT VERIFIED), `iam/`, `parity/matrix.yml`, `exceptions.yml`, `runbook.md` |
+| `docs/` | `adr/` (spikes, NOT VERIFIED), `iam/`, `parity/matrix.yml`, `exceptions.yml`, `release-surface.yml` (qué no cuenta para un release), `runbook.md` |
 
 `lego-azure-satellite` sigue sin existir: no lo inventes antes.
