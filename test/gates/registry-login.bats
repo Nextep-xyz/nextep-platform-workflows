@@ -120,3 +120,30 @@ code_lines() { # code_lines <file> <ere>
   fi
   gate_finish GL3
 }
+
+@test "GL4: every setup-project call of a deploy workflow passes the registry inputs from the workflow's own inputs, and a job that passes the role holds id-token" {
+  gate_require_tools yq jq
+  gate_discover_deploy_workflows GL4
+  local wf json k calls job
+  GATE_VIOLATIONS=()
+  for wf in "${GATE_SUBJECTS[@]}"; do
+    json="$(gate_json "$wf")"
+    # the workflow declares the five inputs, optional and empty by default (their equality with the contract is G12)
+    for k in registry-role-arn codeartifact-domain codeartifact-domain-owner codeartifact-repository registry-scope; do
+      jq -e --arg k "$k" '.on.workflow_call.inputs[$k] | . != null and (.type == "string") and ((.default // null) == "") and ((.required // false) == false)' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "input '$k' must be a string, optional and empty by default: an empty registry-role-arn leaves the workflow exactly as it was"
+    done
+    calls="$(jq '[.jobs[].steps[]? | select((.uses // "") | test("/actions/setup-project@"))] | length' <<<"$json")"
+    ((calls > 0)) || { gate_violation "$wf" "no setup-project call was found (a gate that finds nothing proves nothing)"; continue; }
+    # every call passes the six composite inputs from the workflow inputs of the same name: a job that forgets one installs without the private packages
+    for k in "${LOGIN_INPUTS[@]}"; do
+      jq -e --arg k "$k" --arg want "\${{ inputs.$k }}" '[.jobs[].steps[]? | select((.uses // "") | test("/actions/setup-project@"))] | all(.with[$k] == $want)' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "a setup-project call does not pass $k: \${{ inputs.$k }} (every job that installs dependencies must take the registry login, or it installs without the private packages)"
+    done
+    # a job that passes the role needs id-token: without it the login fails at run time
+    while IFS= read -r job; do
+      gate_violation "$wf" "job '$job' passes registry-role-arn to setup-project but does not hold id-token: write"
+    done < <(jq -r '.jobs | to_entries[] | select([.value.steps[]? | select((.uses // "") | test("/actions/setup-project@")) | .with["registry-role-arn"]] | any(. != null)) | select(.value.permissions["id-token"]? != "write") | .key' <<<"$json")
+  done
+  gate_finish GL4
+}

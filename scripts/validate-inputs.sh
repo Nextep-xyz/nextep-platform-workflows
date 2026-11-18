@@ -80,6 +80,11 @@ if [[ -n $py_reqs ]]; then
   done
 fi
 
+# Registry login (v1.5.0): the five inputs go together or not at all (shape and rule shared with registry-login.sh).
+# shellcheck source=lib/registry.sh
+source "$here/lib/registry.sh"
+registry_check_inputs
+
 test_image="$(val test-database-image)"
 if [[ -n $test_image ]]; then
   if [[ $test_image =~ ^[a-z0-9][a-z0-9._/-]*@sha256:[0-9a-f]{64}$ ]]; then

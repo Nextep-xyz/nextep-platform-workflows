@@ -806,6 +806,97 @@ SH
   [[ "$output" == *"scripts/install-dirs.sh: no trap removes the temporary user config"* ]]
 }
 
+@test "G2 (login amendment): a gate job with exact permissions, no deploy role and registry-role-arn in setup-project passes; every deviation is named" {
+  cat >"$WF" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, pull-requests: write, id-token: write }
+    steps:
+      - uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+        with: { registry-role-arn: "${{ inputs.registry-role-arn }}" }
+      - uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+        with: { registry-role-arn: "${{ inputs.registry-role-arn }}" }
+YAML
+  run bats "$REPO_ROOT/test/gates/permissions.bats"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  # without pull-requests (the environment-deploy gate) it passes too
+  sed -i 's/permissions: { contents: read, pull-requests: write, id-token: write }/permissions: { contents: read, id-token: write }/' "$WF"
+  run bats "$REPO_ROOT/test/gates/permissions.bats"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  # every deviation is named: an extra permission, a deploy role in the gate, a setup-project that ignores the input
+  cat >"$WF" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write, id-token: write }
+    steps:
+      - uses: example-org/nextep-platform-workflows/.github/actions/aws-oidc@main
+      - uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+YAML
+  red permissions.bats "lego-aws-bad.yml: job 'quality-and-security-gate' has 'id-token: write' but its permissions are not exactly {contents: read, pull-requests: write (optional), id-token: write}"
+  [[ "$output" == *"lego-aws-bad.yml: job 'quality-and-security-gate' has 'id-token: write' but uses a composite that assumes a deploy role or deploys"* ]]
+  [[ "$output" == *"lego-aws-bad.yml: job 'quality-and-security-gate' has 'id-token: write' but its setup-project step does not take registry-role-arn from the workflow input"* ]]
+}
+
+@test "G2 red (login amendment): the gate of a package workflow with id-token, and a gate with no setup-project step at all, are named" {
+  cat >"$FX/.github/workflows/lego-aws-package-bad.yml" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps: [{ run: echo ok }]
+YAML
+  cat >"$WF" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, id-token: write }
+    steps: [{ run: echo ok }]
+YAML
+  red permissions.bats "lego-aws-package-bad.yml: job 'quality-and-security-gate' has 'id-token: write' but the gate of a package workflow holds no cloud credentials"
+  [[ "$output" == *"lego-aws-bad.yml: job 'quality-and-security-gate' has 'id-token: write' but its setup-project step does not take registry-role-arn from the workflow input"* ]]
+}
+
+@test "GL4 red: a workflow without the inputs, a setup-project that forgets one, and a job that passes the role without id-token are named" {
+  cat >"$WF" <<'YAML'
+on:
+  workflow_call:
+    inputs:
+      registry-role-arn: { type: string, required: true }
+      aws-region: { type: string, default: "us-east-2" }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps:
+      - uses: example-org/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          registry-role-arn: "${{ inputs.registry-role-arn }}"
+YAML
+  red registry-login.bats "lego-aws-bad.yml: input 'registry-role-arn' must be a string, optional and empty by default"
+  [[ "$output" == *"lego-aws-bad.yml: input 'codeartifact-domain' must be a string, optional and empty by default"* ]]
+  [[ "$output" == *"lego-aws-bad.yml: a setup-project call does not pass registry-scope: \${{ inputs.registry-scope }}"* ]]
+  [[ "$output" == *"lego-aws-bad.yml: a setup-project call does not pass aws-region: \${{ inputs.aws-region }}"* ]]
+  [[ "$output" == *"lego-aws-bad.yml: job 'quality-and-security-gate' passes registry-role-arn to setup-project but does not hold id-token: write"* ]]
+}
+
+@test "GL4 red: a deploy workflow with no setup-project call fails instead of passing" {
+  cat >"$WF" <<'YAML'
+on: { workflow_call: {} }
+jobs:
+  quality-and-security-gate:
+    runs-on: ubuntu-latest
+    permissions: { contents: read }
+    steps: [{ run: echo ok }]
+YAML
+  red registry-login.bats "lego-aws-bad.yml: no setup-project call was found"
+}
+
 @test "GR15 red (login amendment): the token in the setup-project env from anything but the login step, or in a second step, is named" {
   mkdir -p "$FX/.github/actions/setup-project"
   cat >"$FX/.github/actions/setup-project/action.yml" <<'YAML'

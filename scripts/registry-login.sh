@@ -13,6 +13,8 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
 source "$here/lib/common.sh"
+# shellcheck source=lib/registry.sh
+source "$here/lib/registry.sh"
 
 cmd="${1:?usage: registry-login.sh token}"
 
@@ -36,22 +38,12 @@ ca() {
 case "$cmd" in
   token)
     role="$(val registry-role-arn)"
-    names=(registry-role-arn codeartifact-domain codeartifact-domain-owner codeartifact-repository registry-scope)
-    given=0
-    for n in "${names[@]}"; do [[ -z "$(val "$n")" ]] || given=$((given + 1)); done
-    if ((given == 0)); then
+    if [[ "$(registry_inputs_given)" == 0 ]]; then
       log "no registry role configured: nothing to do"
       exit 0
     fi
-    # all or none: a half-configured registry is an oversight, never a silent skip
-    for n in "${names[@]}"; do
-      [[ -n "$(val "$n")" ]] || err "input '$n' is required when any registry input is set (registry-role-arn, codeartifact-domain, codeartifact-domain-owner, codeartifact-repository and registry-scope go together)"
-    done
-    if [[ -n $role && ! $role =~ ^arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9+=,.@_/-]+$ ]]; then err "input 'registry-role-arn' is not an IAM role ARN (value not shown)"; fi
-    if [[ -n "$(val codeartifact-domain)" && ! "$(val codeartifact-domain)" =~ ^[a-z][a-z0-9-]{0,48}[a-z0-9]$ ]]; then err "input 'codeartifact-domain' is not a CodeArtifact domain name"; fi
-    if [[ -n "$(val codeartifact-domain-owner)" && ! "$(val codeartifact-domain-owner)" =~ ^[0-9]{12}$ ]]; then err "input 'codeartifact-domain-owner' is not a 12-digit account id (value not shown)"; fi
-    if [[ -n "$(val codeartifact-repository)" && ! "$(val codeartifact-repository)" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{1,99}$ ]]; then err "input 'codeartifact-repository' is not a CodeArtifact repository name"; fi
-    if [[ -n "$(val registry-scope)" && ! "$(val registry-scope)" =~ ^@[a-z0-9][a-z0-9._-]*$ ]]; then err "input 'registry-scope' must be an npm scope such as @example (got '$(val registry-scope)')"; fi
+    # all or none, and the shape of each (lib/registry.sh, shared with validate-inputs.sh): a half-configured registry is never a silent skip
+    registry_check_inputs
     [[ "$(val aws-region)" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] || err "input 'aws-region' is not a region name (got '$(val aws-region)')"
     finish
     require_env GITHUB_OUTPUT

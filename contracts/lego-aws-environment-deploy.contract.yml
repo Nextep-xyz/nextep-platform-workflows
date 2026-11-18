@@ -35,6 +35,21 @@ inputs:
   python-requirements:
     type: string
     default: ""
+  registry-role-arn:
+    type: string
+    default: ""
+  codeartifact-domain:
+    type: string
+    default: ""
+  codeartifact-domain-owner:
+    type: string
+    default: ""
+  codeartifact-repository:
+    type: string
+    default: ""
+  registry-scope:
+    type: string
+    default: ""
   branch-map:
     type: string
     default: ""

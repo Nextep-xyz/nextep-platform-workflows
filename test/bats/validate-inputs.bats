@@ -23,6 +23,61 @@ run_validate() { run "$SCRIPTS/validate-inputs.sh" "$1"; }
   [ "$status" -eq 0 ]
 }
 
+# ---- registry login (v1.5.0): five optional inputs that go together ---------------------------------------------------------------
+
+registry_env() {
+  OWNER="$(printf '%012d' 7)"
+  export INPUT_REGISTRY_ROLE_ARN="arn:aws:iam::${OWNER}:role/shop-registry-read" INPUT_CODEARTIFACT_DOMAIN=example-domain
+  export INPUT_CODEARTIFACT_DOMAIN_OWNER="$OWNER" INPUT_CODEARTIFACT_REPOSITORY=example-repo INPUT_REGISTRY_SCOPE=@example
+}
+
+@test "registry login: the five inputs together pass in both flows, and none of them (the default of every existing caller) passes too" {
+  cicd_ecs_env
+  registry_env
+  run_validate cicd
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  env_deploy_env
+  registry_env
+  run_validate environment-deploy
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  cicd_ecs_env
+  export INPUT_REGISTRY_ROLE_ARN="" INPUT_CODEARTIFACT_DOMAIN="" INPUT_CODEARTIFACT_DOMAIN_OWNER="" INPUT_CODEARTIFACT_REPOSITORY="" INPUT_REGISTRY_SCOPE=""
+  run_validate cicd
+  [ "$status" -eq 0 ]
+}
+
+@test "registry login: some inputs without the others are refused naming every missing one, in both flows; the role and the account are not echoed" {
+  cicd_ecs_env
+  registry_env
+  export INPUT_CODEARTIFACT_DOMAIN="" INPUT_REGISTRY_SCOPE=""
+  run_validate cicd
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'codeartifact-domain' is required when any registry input is set"* ]]
+  [[ "$output" == *"input 'registry-scope' is required when any registry input is set"* ]]
+  [[ "$output" != *"$OWNER"* ]]
+  env_deploy_env
+  registry_env
+  export INPUT_REGISTRY_ROLE_ARN=""
+  run_validate environment-deploy
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'registry-role-arn' is required when any registry input is set"* ]]
+}
+
+@test "registry login: the shape of every input is checked" {
+  cicd_ecs_env
+  registry_env
+  export INPUT_REGISTRY_ROLE_ARN="not-an-arn-${OWNER}" INPUT_CODEARTIFACT_DOMAIN="Bad Domain" INPUT_CODEARTIFACT_DOMAIN_OWNER=short \
+    INPUT_CODEARTIFACT_REPOSITORY=a INPUT_REGISTRY_SCOPE=example
+  run_validate cicd
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"input 'registry-role-arn' is not an IAM role ARN"* ]]
+  [[ "$output" == *"input 'codeartifact-domain' is not a CodeArtifact domain name"* ]]
+  [[ "$output" == *"input 'codeartifact-domain-owner' is not a 12-digit account id"* ]]
+  [[ "$output" == *"input 'codeartifact-repository' is not a CodeArtifact repository name"* ]]
+  [[ "$output" == *"input 'registry-scope' must be an npm scope"* ]]
+  [[ "$output" != *"$OWNER"* ]]
+}
+
 @test "enums: bad project, environment, compute and package-manager are all reported at once" {
   cicd_ecs_env
   export INPUT_PROJECT=Shop INPUT_ENVIRONMENT=qa INPUT_COMPUTE=vm INPUT_PACKAGE_MANAGER=yarn

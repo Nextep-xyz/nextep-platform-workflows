@@ -58,6 +58,26 @@ on:
         description: "Comma separated requirements files (relative paths), installed in order. Every requirement must be pinned with == (or carry hashes)."
         type: string
         default: ""
+      registry-role-arn:
+        description: "READ-ONLY role that installs private @scope packages from CodeArtifact through OIDC (no static token). Pass it from a repository variable, never a literal. Empty disables the login: no role is assumed. The five registry inputs go together."
+        type: string
+        default: ""
+      codeartifact-domain:
+        description: "CodeArtifact domain of the private packages. Pass it from a repository variable. Needs registry-role-arn."
+        type: string
+        default: ""
+      codeartifact-domain-owner:
+        description: "Account id that owns the CodeArtifact domain. Pass it from a repository variable. Needs registry-role-arn."
+        type: string
+        default: ""
+      codeartifact-repository:
+        description: "CodeArtifact repository the private packages are installed from. Pass it from a repository variable. Needs registry-role-arn."
+        type: string
+        default: ""
+      registry-scope:
+        description: "npm scope served by that repository, for example @example. Pass it from a repository variable. Needs registry-role-arn."
+        type: string
+        default: ""
       branch-map:
         description: "JSON object branch -> environment. Guard against deploying a branch to the wrong environment."
         type: string
@@ -203,8 +223,11 @@ jobs:
   quality-and-security-gate:
     name: quality-and-security-gate
     runs-on: ubuntu-latest
+    # Amendment of the id-token rule (SPEC.md section 0, "Enmienda Login del registry"): the gate holds id-token ONLY so that setup-project can log in
+    # to the registry with a READ-ONLY role (registry-role-arn, empty = nothing is assumed). Gate G2 fences it: exact permissions, no deploy role.
     permissions:
       contents: read
+      id-token: write
     concurrency:
       group: gate-${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -239,6 +262,12 @@ jobs:
           install-dirs: ${{ inputs.install-dirs }}
           python-version: ${{ inputs.python-version }}
           python-requirements: ${{ inputs.python-requirements }}
+          registry-role-arn: ${{ inputs.registry-role-arn }}
+          codeartifact-domain: ${{ inputs.codeartifact-domain }}
+          codeartifact-domain-owner: ${{ inputs.codeartifact-domain-owner }}
+          codeartifact-repository: ${{ inputs.codeartifact-repository }}
+          registry-scope: ${{ inputs.registry-scope }}
+          aws-region: ${{ inputs.aws-region }}
       # parity: H-03, H-04, H-05
       - name: Quality gate
         if: ${{ inputs.lint-command != '' || inputs.test-command != '' }}
@@ -293,6 +322,12 @@ jobs:
           install-dirs: ${{ inputs.install-dirs }}
           python-version: ${{ inputs.python-version }}
           python-requirements: ${{ inputs.python-requirements }}
+          registry-role-arn: ${{ inputs.registry-role-arn }}
+          codeartifact-domain: ${{ inputs.codeartifact-domain }}
+          codeartifact-domain-owner: ${{ inputs.codeartifact-domain-owner }}
+          codeartifact-repository: ${{ inputs.codeartifact-repository }}
+          registry-scope: ${{ inputs.registry-scope }}
+          aws-region: ${{ inputs.aws-region }}
       # parity: H-06, H-07
       - name: Assume the environment role
         id: oidc
@@ -412,6 +447,12 @@ jobs:
           install-dirs: ${{ inputs.install-dirs }}
           python-version: ${{ inputs.python-version }}
           python-requirements: ${{ inputs.python-requirements }}
+          registry-role-arn: ${{ inputs.registry-role-arn }}
+          codeartifact-domain: ${{ inputs.codeartifact-domain }}
+          codeartifact-domain-owner: ${{ inputs.codeartifact-domain-owner }}
+          codeartifact-repository: ${{ inputs.codeartifact-repository }}
+          registry-scope: ${{ inputs.registry-scope }}
+          aws-region: ${{ inputs.aws-region }}
       - name: Assume the environment role
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
         with:
@@ -499,6 +540,12 @@ jobs:
           install-dirs: ${{ inputs.install-dirs }}
           python-version: ${{ inputs.python-version }}
           python-requirements: ${{ inputs.python-requirements }}
+          registry-role-arn: ${{ inputs.registry-role-arn }}
+          codeartifact-domain: ${{ inputs.codeartifact-domain }}
+          codeartifact-domain-owner: ${{ inputs.codeartifact-domain-owner }}
+          codeartifact-repository: ${{ inputs.codeartifact-repository }}
+          registry-scope: ${{ inputs.registry-scope }}
+          aws-region: ${{ inputs.aws-region }}
       - name: Assume the environment role
         id: oidc
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
