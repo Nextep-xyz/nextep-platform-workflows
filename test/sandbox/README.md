@@ -18,6 +18,8 @@ of a scratch repository in a **dev** account, set the repository variable `AWS_R
 | [`environment-deploy-ecs-no-db.yml`](callers/environment-deploy-ecs-no-db.yml) | `lego-aws-environment-deploy`, `compute: ecs`, `migrate: false` (a service with no database: no tunnel, no migration job; rollback by `image-tag`) |
 | [`cicd-telemetry.yml`](callers/cicd-telemetry.yml) | `lego-aws-cicd` reporting to a DORA collector: `telemetry-url`/`telemetry-audience` from variables, pinned by tag (`@v1`) |
 | [`package-publish.yml`](callers/package-publish.yml) | `lego-aws-package-publish`: push of a version tag, package in a subdirectory, role and CodeArtifact coordinates from variables, no token (v1.4.0) |
+| [`cicd-registry-login.yml`](callers/cicd-registry-login.yml) | `lego-aws-cicd` installing a private `@scope` package from CodeArtifact through OIDC: the five registry inputs from variables, a read-only role, no token (v1.5.0; **NOT VERIFIED** until a registry with a published package exists) |
+| [`pm-userconfig/`](pm-userconfig/run.sh) | Not a caller: a manual check that npm and pnpm honour the temporary user config of the registry login, against a local fake registry |
 
 **Status: NOT VERIFIED.** Nothing here has been run against a real account. The dev integration runs of the spec
 (`SPEC.md` P1.3/P1.4) are pending until a dev AWS account is available.
@@ -29,4 +31,5 @@ Things to check on the first real run (open questions, not facts):
 - The Session Manager plugin installs on `ubuntu-latest` with `dpkg -i` and `sudo`.
 - `verify-full` over the tunnel with the project's ORM (spike S4).
 - `actions/setup-python` with `cache: pip` and a multi-line `cache-dependency-path` built from `python-requirements`, and `python -m pip install -r` resolving hashes on the runner (the Python toolchain, v1.3.0).
+- The registry login (v1.5.0, runbook section 7): `sts assume-role-with-web-identity` with the OIDC token of a job against a real role, the CodeArtifact token and endpoint, and the install of a published private package through them, in the gate and in a deploy job.
 - A `compute: ecs` service with `migrate: false` reaching `infra-deploy` with no tunnel and `post-deploy-command` as its last step (v1.3.0).

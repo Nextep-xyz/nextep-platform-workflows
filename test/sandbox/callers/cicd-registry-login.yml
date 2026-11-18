@@ -1,0 +1,26 @@
+# Fictional caller (project "shop", compute lambda) whose gate and deploy jobs install a PRIVATE package (@example/shop-lib) from CodeArtifact.
+# The five registry inputs go together and come from repository variables (this repository is public, and so is the caller's YAML if the project is).
+# Empty = no role is assumed and the workflow behaves exactly as it did before v1.5.0. The role is READ-ONLY (docs/iam/registry-read-*.example.json): the
+# gate runs the code of the pull request, so the role can do nothing but read one repository. No token, no secret, no .npmrc in the project.
+# NOT VERIFIED: this caller needs a real registry with a published package, which does not exist yet (docs/runbook.md section 7.6). Pin by tag.
+name: cicd
+on:
+  push:
+    branches: [develop]
+  pull_request:
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd: # the id of this job is part of the required check name
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@v1
+    with:
+      project: shop
+      environment: dev
+      compute: lambda
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      branch-map: '{"develop":"dev"}'
+      registry-role-arn: ${{ vars.REGISTRY_ROLE_ARN }}
+      codeartifact-domain: ${{ vars.CODEARTIFACT_DOMAIN }}
+      codeartifact-domain-owner: ${{ vars.CODEARTIFACT_DOMAIN_OWNER }}
+      codeartifact-repository: ${{ vars.CODEARTIFACT_REPOSITORY }}
+      registry-scope: ${{ vars.REGISTRY_SCOPE }}
+      deploy-command: pnpm run deploy

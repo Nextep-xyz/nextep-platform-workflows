@@ -869,6 +869,25 @@ ubicación del colector (es un input), orden de implementación de `deploy-mode`
 | Adopción por los consumidores | Se rastrea en los repositorios consumidores, no aquí; requiere `v1` y las variables `AWS_ROLE_ARN_*` del caller |
 | F0 – F3 (diseño original) | Superadas por la enmienda §0; Azure sigue en backlog |
 | Paquetes (`lego-aws-package-publish`, v1.4.0) | **Hecha** (local, rama `feat/workflow-de-publicacion-de-paquetes`): workflow, scripts, gates, pre-releases `-dev.N`, ejemplos IAM y runbook §6. **Pendiente:** release v1.4.0 con `release.yml`; run real en `dev` |
+| Login del registry (v1.5.0) | **Hecha y lista, sin liberar** (local, rama `feat/login-codeartifact-en-ci`, desde la de paquetes). **Pendiente:** release v1.5.0 cuando el registry y el paquete publicado existan (R3); run real en `dev` |
+
+### Estado del login del registry (2026-11-18)
+
+**Hecho:** enmienda en §0; `scripts/registry-login.sh` y `scripts/lib/registry.sh` (forma de los inputs compartida con `validate-inputs.sh`); paso `Get the registry token` y el userconfig efímero de `install-dirs.sh` en `setup-project`; los cinco inputs opcionales (aditivos) en `lego-aws-cicd` y `lego-aws-environment-deploy`, pasados a **cada** llamada de `setup-project`; `id-token: write` solo en `quality-and-security-gate` con la enmienda acotada de G2; gates GL1–GL4 y GR15 enmendado; ejemplos IAM de solo lectura con su test; runbook §7; caller `test/sandbox/callers/cicd-registry-login.yml`; harness manual `test/sandbox/pm-userconfig/`.
+**Verificado:** la suite completa con `aws`, `curl`, `npm` y `pnpm` falsos, y cada gate nuevo o tocado **en rojo** (en fixtures y sobre los workflows reales). Contra un registry **falso** local: `pnpm install --frozen-lockfile` (pnpm 9.15.9 y 10.34.9) y `npm ci` honran el userconfig efímero con la referencia `${VAR}` y mandan el token; sin el config no llegan al paquete (S6 resuelto por diseño; no depende de `aws codeartifact login`).
+**NO VERIFICADO (hasta que exista el registry y un paquete publicado):** STS + CodeArtifact + install reales, el conjunto exacto de acciones de lectura, `job_workflow_ref` en IAM (ADR 0001), que el AWS CLI de `ubuntu-latest` llame `assume-role-with-web-identity` sin firmar, y un lockfile con la URL del tarball de CodeArtifact.
+**Decisiones tomadas (a revisar):** el input del scope se llama `registry-scope`; la región es el `aws-region` que ya existe (no hay input nuevo); el login es por job (cada job que instala pide su propio token de 15 min); los JWT de OIDC van en `argv` de la llamada a STS (el código del PR puede pedir el mismo token de todos modos: la defensa es el rol de solo lectura).
+**Pendiente:** cuando R3 cierre, cortar v1.5.0 (solo con `release.yml`, nunca a mano), correr el caller de sandbox en `dev` y mover lo confirmado de NO VERIFICADO a verificado.
+
+**Prompt para retomar (login del registry):**
+
+```text
+Lee AGENTS.md, SPEC.md §0 (Enmienda Login del registry) y §14, y docs/runbook.md §7 de nextep-platform-workflows. La rama feat/login-codeartifact-en-ci
+está lista y sin liberar. Con R3 cerrado (registry y paquete privado publicado): confirma que v1.4.0 existe (`git tag`), integra la rama en main por PR, libera v1.5.0 con
+release.yml (nunca crees ni muevas un tag a mano) y corre test/sandbox/callers/cicd-registry-login.yml desde un repo de prueba en dev. Resuelve cada punto NO VERIFICADO de
+docs/runbook.md §7.6 con la salida real y muévelo a verificado. Si la realidad contradice el spec, detente y actualiza el spec primero. No nombres proyectos ni cuentas
+internas: el repo es público.
+```
 
 ### Estado de paquetes (2026-11-18)
 

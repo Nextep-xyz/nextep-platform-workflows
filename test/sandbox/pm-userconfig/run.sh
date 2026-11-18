@@ -49,6 +49,7 @@ check() { # check <label> <command...>: install, then prove the package is there
   local pkg="MISSING"
   [[ -f node_modules/@example/priv/index.js ]] && pkg="installed"
   echo "[$label] exit=$rc package=$pkg registry-saw: $(grep -v listening "$LOG" | sort | uniq -c | tr -s ' ' | paste -sd';' -)"
+  [[ $rc -eq 0 ]] || echo "[$label] first error line: $(grep -m1 -iE 'err|fail|401|unauthorized' "$W/out.txt" | cut -c1-160)"
   grep -q "$TOKEN" "$W/out.txt" && echo "[$label] WARNING: the token appears in the install output"
   [[ $rc -eq 0 && $pkg == installed ]]
 }

@@ -76,11 +76,15 @@ A service with no database says so explicitly with `migrate: false`:
 | `package name '<name>' must be '<scope>/<name>'` or `<file> sets publishConfig.registry` | The package is outside `package-scope`, or tries to choose its own registry | Rename it, or remove `publishConfig.registry` |
 | `tarball file '<file>' line <n> holds a CodeArtifact URL` (or `a 12-digit number that may be a cloud account id`) | What `npm pack` would ship contains a registry URL or something that looks like an account id. The value is never printed | Remove it from the shipped file, or from `files` in `package.json` |
 | `npm pack lists no files ...` | The package would be empty: the build did not produce what `files` or `main` point to (section 6.5) | Make `build-command` produce the files |
-| `could not get a CodeArtifact authorization token` | The role cannot mint the token, or the trust policy did not match the run | Check the permissions of the role and its trust policy (`job_workflow_ref`, `sub`; section 6.2) |
+| `could not get a CodeArtifact authorization token` (publishing, and the registry login of section 7) | The role cannot mint the token, or the trust policy did not match the run | Check the permissions of the role and its trust policy (`job_workflow_ref`, `sub`; section 6.2) |
 | `<package>@<version> already exists in repository '<repo>'` | That version is published and a published version is immutable. Also what a re-run of a run that did publish shows | Nothing to fix if it was a re-run. Otherwise bump the version and push a new tag |
 | `describe-package-version failed ... nothing was published` | An error other than "not found" while checking the version (permissions or an outage). It fails closed | Fix the permission or retry later; nothing was published |
 | `npm publish failed for <package>@<version>` | The registry refused the publish | Read the npm error above it. The version may be half-published: check it in the registry before re-running |
 | A `publish` run shown as **cancelled** | A newer run of the same package was queued behind a running one (concurrency, section 6.4) | Re-run it once the other one finishes |
+| `the job has no id-token: write permission, so the registry role cannot be assumed` | `registry-role-arn` is set but the job has no OIDC token: the caller did not grant `id-token: write`, or it is a pull request from a fork (forks never get it) | Grant `id-token: write` in the caller. For a fork there is no fix: a maintainer re-runs it from a branch of the repository |
+| `input '<name>' is required when any registry input is set` (or `... is not an IAM role ARN`, `... is not a 12-digit account id`) | The five registry inputs go together, or none: a half-configured registry is never a silent skip | Set all five from repository variables, or none (section 7.2) |
+| `could not assume the registry role (does its trust policy allow this repository and this workflow? ...)` | STS refused the OIDC token: the trust policy of the registry role does not match the repository (`sub`) or the workflow the job runs in (`job_workflow_ref`, called by tag) | Check the trust policy against `docs/iam/registry-read-trust-policy.example.json`; the caller must call the workflow by tag |
+| `E401` / `ERR_PNPM_FETCH_401` while installing a private package | The registry rejected the token: the role lacks `ReadFromRepository` on that repository, the scope is served by another repository, or a project `.npmrc` sets its own `@scope:registry` (it wins over the temporary user config, section 7.4) | Fix the role or the inputs; remove the scope registry from the project `.npmrc` |
 
 Rollback (compute `ecs`): run `environment-deploy` with `image-tag` set to a previous tag. Nothing is built, the image must exist,
 the database is not migrated.
@@ -111,6 +115,9 @@ already exist: only the release workflow creates or moves them, never by hand.
 Package publishing (section 6): the first run of `lego-aws-package-publish` against a real CodeArtifact repository, the exact set of CodeArtifact
 actions of the publishing role, and `job_workflow_ref` in the role's trust policy are NOT VERIFIED (list at the end of section 6). The workflow is
 in `main` and is released with `release.yml`; until a tag carries it, no caller can pin it.
+
+Registry login in the gates and the deploys (section 7): a real registry with a published private package, the exact set of read actions of the role, `job_workflow_ref` in its trust
+policy and the first run in `dev` are NOT VERIFIED (list at the end of section 7). It is prepared for v1.5.0 and not released.
 
 ## 6. Publishing packages (`lego-aws-package-publish`, since v1.4.0)
 
@@ -177,4 +184,61 @@ Written from the documentation and verified only with `aws` and `npm` fakes. Not
 - **`job_workflow_ref` as an IAM condition** of the trust policy (ADR 0001, [`docs/adr/0001-s1-job-workflow-ref-in-iam.md`](adr/0001-s1-job-workflow-ref-in-iam.md)). The `sub` condition is the documented one; if the claim cannot be conditioned, the tag ruleset and the `sub` are the whole barrier.
 - **The integration against a real registry**: that `npm publish` honours `--userconfig` with the token reference and the forced `--@scope:registry=` over a project `.npmrc`, that `--tag dev` is accepted, that `describe-package-version` reports `Published` right after the publish, and that the endpoint check matches a real CodeArtifact endpoint.
 - The tag filter with `!` and the `StringNotLike` on `sub` of section 6.3, and that a workflow called by an alias tag (`@v1`) reports that tag in `job_workflow_ref`.
+
+## 7. Private packages in the gates and the deploys (`registry-role-arn`, prepared for v1.5.0)
+
+`lego-aws-cicd` and `lego-aws-environment-deploy` can install private `@scope/*` packages from CodeArtifact through OIDC, with no static token. It is **opt-in**: with `registry-role-arn` empty
+no role is assumed and every job behaves exactly as before.
+
+### 7.1 What it does
+
+Every job that installs dependencies (`setup-project`: the gate and the deploy jobs) runs, just before the immutable install, one extra step, `Get the registry token`, when `registry-role-arn` is set. The step:
+
+1. asks the runner for the OIDC token of the job (audience `sts.amazonaws.com`) and masks it;
+2. assumes the **read-only** registry role with it (`sts assume-role-with-web-identity`, 15 minutes) **inside the script**: the role credentials exist only in that process and in the two CodeArtifact calls, never in the runner env file nor in a later step
+   (this is also why it does not use `aws-actions/configure-aws-credentials`, which exports them to every later step, and does not clash with the environment role that the deploy jobs assume afterwards);
+3. asks CodeArtifact for an authorization token (15 minutes) and the npm endpoint, and masks the token **before** it is written to the step output.
+
+The token reaches **one** step, the install, in its `env:` (`CODEARTIFACT_AUTH_TOKEN`). `install-dirs.sh` writes a **temporary** npm user config with `@scope:registry=<endpoint>` and
+`//host/path/:_authToken=${CODEARTIFACT_AUTH_TOKEN}` (a reference: npm and pnpm expand it themselves), hands it over with `NPM_CONFIG_USERCONFIG` in that process only, and deletes it when the install ends, also if it fails.
+
+### 7.2 Configuring a caller
+
+Five repository variables, never literals (this repository is public, and so is the caller's YAML if the project is), passed together: `registry-role-arn`, `codeartifact-domain`, `codeartifact-domain-owner`,
+`codeartifact-repository` and `registry-scope` (for example `@example`). The region is the existing `aws-region` input. Example: [`test/sandbox/callers/cicd-registry-login.yml`](../test/sandbox/callers/cicd-registry-login.yml).
+
+The permissions the caller already grants (`id-token: write`, `contents: read`, `pull-requests: write`) are enough; the gate job now holds `id-token: write` too (amendment of G2, `SPEC.md` section 0), only to log in.
+`validate-inputs` refuses a partial set naming what is missing. The role and its policies: [`docs/iam/`](iam/README.md) (`registry-read-*.example.json`).
+
+### 7.3 What stays true
+
+- No secret, no token input, no `.npmrc` in the project, no `~/.npmrc`, no `aws codeartifact login`, nothing in the runner env file; the token is masked before it is written and lives in one step's `env:` (gates GR15 and GL1-GL3).
+- Every `setup-project` call of the two workflows passes the registry inputs (gate GL4), so a job that installs without the login cannot appear by omission.
+- `lego-aws-package-publish` does not use this login and does not change.
+
+### 7.4 Limits you should know
+
+- **The role is the whole defence, and it is read-only.** The gate runs the code of the pull request with `id-token: write`; that permission belongs to the job, so that code can ask for the same OIDC token and assume the same role. It can read one repository and nothing else.
+  A pull request from a fork gets no `id-token`, so the login fails there with a message saying so; install nothing private for forks.
+- **A project `.npmrc` that sets `@scope:registry` wins** over the temporary user config (project config has precedence over user config in npm and pnpm). Do not set it in the project: the workflow points the scope at the registry.
+- The token lasts 15 minutes; an install that takes longer needs a role with a longer session (not configurable here).
+- Each job logs in on its own (a run with a gate, a migration and a deploy mints three tokens).
+
+### 7.5 Reading a failure
+
+See the rows of section 3 (`no id-token`, `is required when any registry input is set`, `could not assume the registry role`, `could not get a CodeArtifact authorization token`, `E401`). Every message names the input or the permission to check and never prints the role, the account or a token.
+
+### 7.6 Verified and NOT VERIFIED
+
+**Verified** (locally, with `aws`, `curl`, `npm` and `pnpm` fakes in the suite, and a fake registry for the package managers):
+the order of the calls, the masking, that nothing reaches the runner env file or the step outputs but the token and the endpoint, the shape and the removal of the temporary user config, the all-or-none rule, and gates GL1-GL4 and G2 in red.
+Against a **local fake registry** that demands a bearer token on every request ([`test/sandbox/pm-userconfig/run.sh`](../test/sandbox/pm-userconfig/run.sh), manual, needs the network to fetch pnpm): `pnpm install --frozen-lockfile` with pnpm 9.15.9 and 10.34.9, and `npm ci` with npm 9.2.0, install the
+private package using that temporary user config and the token in the environment, send the bearer token, and without the config the package is not reachable (pnpm asks the public registry and gets a 404); with the config but no token in the environment pnpm warns `Failed to replace env in config` and the install fails.
+This is a check of the package managers, **not** of CodeArtifact.
+
+**NOT VERIFIED** until a registry with a published package exists (`test/sandbox/callers/cicd-registry-login.yml` is the caller to run in `dev`):
+- the real integration: `sts assume-role-with-web-identity` with the OIDC token of a job, `get-authorization-token` and `get-repository-endpoint` against a real domain, and the install of a published package through the real endpoint;
+- that the AWS CLI on `ubuntu-latest` calls `assume-role-with-web-identity` unsigned, as it does on a developer machine, and the 900-second session;
+- the exact set of read actions of the role (`GetAuthorizationToken`, `sts:GetServiceBearerToken`, `GetRepositoryEndpoint`, `ReadFromRepository`) and `job_workflow_ref` as an IAM condition (ADR 0001);
+- a lockfile that stores the CodeArtifact tarball URL (it matches the standard pattern of the endpoint, so the install should resolve it through the scope registry).
 

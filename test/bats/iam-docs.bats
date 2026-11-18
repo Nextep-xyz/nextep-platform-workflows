@@ -35,6 +35,32 @@ load 'helpers'
   ! jq -e '.Statement[0].Condition | .. | strings | select(test("refs/heads/"))' "$f" >/dev/null
 }
 
+# ---- registry read role (the OIDC login of setup-project, v1.5.0) --------------------------------------------------------------
+
+@test "the registry read policy allows exactly the four read actions, scopes them to one repository and gates the bearer token to CodeArtifact" {
+  local f="$REPO_ROOT/docs/iam/registry-read-policy.example.json"
+  jq -e . "$f" >/dev/null
+  # the whole set of actions, nothing else: a new action in the example is a decision a test has to know about
+  [ "$(jq -c '[.Statement[] | .Action] | flatten | sort' "$f")" = '["codeartifact:GetAuthorizationToken","codeartifact:GetRepositoryEndpoint","codeartifact:ReadFromRepository","sts:GetServiceBearerToken"]' ]
+  # read-only: no publish, no put, no delete, no copy, no create, no dispose, nothing of IAM, no wildcard action
+  ! jq -e '.Statement[] | select([.Action] | flatten | any(test("Publish|Put|Delete|Dispose|Copy|Create|Update|Associate|Disassociate|^iam:|:\\*$") or . == "*"))' "$f" >/dev/null
+  jq -e '[.Statement[] | select(.Effect != "Allow")] | length == 0' "$f" >/dev/null
+  jq -e '[.Statement[] | select([.Action] | flatten | any(. == "codeartifact:GetRepositoryEndpoint" or . == "codeartifact:ReadFromRepository")) | .Resource] | flatten | all(test("^arn:aws:codeartifact:<REGION>:<ACCOUNT>:repository/<DOMAIN>/<REPOSITORY>$"))' "$f" >/dev/null
+  jq -e '.Statement[] | select([.Action] | flatten | any(. == "sts:GetServiceBearerToken")) | .Condition.StringEquals["sts:AWSServiceName"] == "codeartifact.amazonaws.com"' "$f" >/dev/null
+}
+
+@test "the registry read trust policy pins the two deploy-family workflows at a tag and a subject limited to one repository, never a bare wildcard" {
+  local f="$REPO_ROOT/docs/iam/registry-read-trust-policy.example.json"
+  jq -e . "$f" >/dev/null
+  jq -e '.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"' "$f" >/dev/null
+  # job_workflow_ref: only lego-aws-cicd and lego-aws-environment-deploy, each at a release tag, never a branch (the gate job runs inside them)
+  jq -e '.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:job_workflow_ref"] | (type == "array") and length > 0 and all(test("/\\.github/workflows/lego-aws-(cicd|environment-deploy)\\.yml@refs/tags/v[0-9]"))' "$f" >/dev/null
+  # sub: the repository (owner/name, no wildcard in them) and then anything: a pull request, a branch. job_workflow_ref is what fences the workflow
+  jq -e '.Statement[0].Condition.StringLike["token.actions.githubusercontent.com:sub"] | test("^repo:[^*:/]+/[^*:/]+:[^:]*\\*?$") and (test("^repo:\\*") | not)' "$f" >/dev/null
+  # the role of the registry is not the role of the deploy: it cannot be assumed for anything but the read
+  ! jq -e '.Statement[0].Condition | .. | strings | select(test("lego-aws-package-"))' "$f" >/dev/null
+}
+
 @test "the package publishing policy has no wildcard action, scopes the package actions to one repository and gates the bearer token to CodeArtifact" {
   local f="$REPO_ROOT/docs/iam/package-publish-policy.example.json"
   jq -e . "$f" >/dev/null

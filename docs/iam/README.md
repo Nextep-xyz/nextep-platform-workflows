@@ -6,6 +6,8 @@
 | [`trust-policy.example.json`](trust-policy.example.json) | Trust policy of the role per (project, environment) |
 | [`package-publish-trust-policy.example.json`](package-publish-trust-policy.example.json) | Trust policy of the role that publishes npm packages (`lego-aws-package-publish`): the workflow file by tag and a subject limited to the version tag |
 | [`package-publish-policy.example.json`](package-publish-policy.example.json) | Minimum permissions of that role: mint the registry token, resolve one endpoint, publish and describe the packages of one scope |
+| [`registry-read-trust-policy.example.json`](registry-read-trust-policy.example.json) | Trust policy of the READ-ONLY role that the gates and deploys use to install private packages (`registry-role-arn`): `lego-aws-cicd` and `lego-aws-environment-deploy` at a release tag, and one repository |
+| [`registry-read-policy.example.json`](registry-read-policy.example.json) | Minimum permissions of that role: mint the registry token and read one repository. Nothing that writes |
 
 Replace every `<...>` placeholder. Nothing here is a real account, role or resource.
 
@@ -36,3 +38,19 @@ verified control. The `sub` condition is the standard, documented one.
 - The exact set of CodeArtifact actions that `npm publish` and `describe-package-version` need is **NOT VERIFIED**: it comes from
   the AWS documentation and has not been exercised against a real domain. The first integration run in `dev` settles it (runbook section 6).
 - The same status as the deploy trust policy applies to `job_workflow_ref` (**NOT VERIFIED**, [ADR 0001](../adr/0001-s1-job-workflow-ref-in-iam.md)).
+
+## The registry read role (v1.5.0)
+
+The gates and the deploys can install private `@scope/*` packages from CodeArtifact (`registry-role-arn`, runbook section 7). That role is **not** the deploy
+role and **not** the publishing role.
+
+- **Read-only, and nothing else.** The policy example allows `GetAuthorizationToken` (domain), `sts:GetServiceBearerToken` (only for `codeartifact.amazonaws.com`),
+  `GetRepositoryEndpoint` and `ReadFromRepository` (one repository). No `Publish*`, `Put*`, `Delete*`, `Create*`, nothing of `iam:*`. A test pins the exact set of actions.
+- **Why this matters more than for the others.** The `quality-and-security-gate` job runs the code of the pull request (lint, tests) with `id-token: write`, because it has to log in
+  before it installs. `id-token` belongs to the job, not to the step, so that code could ask for the same OIDC token and assume the same role. The defence is that the role can do
+  **nothing but read one repository** and that its trust policy is limited to one repository and to the two deploy-family workflows at a release tag. A pull request from a fork never
+  receives `id-token`.
+- **The trust policy.** `job_workflow_ref` names `lego-aws-cicd.yml` and `lego-aws-environment-deploy.yml` at a release tag (list `@refs/tags/v1` for the alias or each exact `@refs/tags/vX.Y.Z`
+  a caller pins). `sub` is `repo:<org>/<repo>:*`, because the gate also runs on pull requests (`repo:<org>/<repo>:pull_request`) and on branches, so it cannot be narrowed to a tag as the publishing
+  role's can. The workflow file is what fences the role; keep the repository variable that holds the role ARN limited to the repositories that need it.
+- Same status as the others: the exact action set and `job_workflow_ref` as an IAM condition are **NOT VERIFIED** (runbook section 7.6).
