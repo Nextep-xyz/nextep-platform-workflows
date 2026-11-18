@@ -690,3 +690,132 @@ YAML
   [[ "$output" == *"callers/package.yml: a caller of a package workflow must grant exactly {id-token: write, contents: read}"* ]]
   [[ "$output" == *"callers/package.yml: the reusable workflow must be pinned by tag"* ]]
 }
+
+# ---- registry login (GL1-GL3, GR15 amendment) -----------------------------------------------------------------------------------
+
+@test "GL1-GL3 red: a tree with no composite or script of the registry login fails with '0 subjects' or 'no ... found' instead of passing" {
+  mkdir -p "$FX/.github/actions/unrelated"
+  printf 'runs:\n  using: composite\n  steps:\n    - shell: bash\n      run: echo ok\n' >"$FX/.github/actions/unrelated/action.yml"
+  red registry-login.bats "no composite runs registry-login.sh (a gate that finds nothing proves nothing)"
+  [[ "$output" == *"GL2: 0 subjects discovered"* ]]
+  [[ "$output" == *"GL3: 0 subjects discovered"* ]]
+}
+
+@test "GL1 red: the login in another composite, a required or defaulted input, no condition, outputs and a continue-on-error are named" {
+  mkdir -p "$FX/.github/actions/setup-project" "$FX/.github/actions/other"
+  cat >"$FX/.github/actions/other/action.yml" <<'YAML'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: scripts/registry-login.sh token
+YAML
+  cat >"$FX/.github/actions/setup-project/action.yml" <<'YAML'
+inputs:
+  registry-role-arn: { required: true }
+  codeartifact-domain: { default: "x" }
+  codeartifact-domain-owner: { default: "" }
+  codeartifact-repository: { default: "" }
+  registry-scope: { default: "" }
+outputs:
+  token: { value: "${{ steps.registry.outputs.token }}" }
+runs:
+  using: composite
+  steps:
+    - id: registry
+      continue-on-error: true
+      shell: bash
+      run: scripts/registry-login.sh token
+YAML
+  red registry-login.bats ".github/actions/other/action.yml: runs registry-login.sh: the login lives only in setup-project"
+  [[ "$output" == *".github/actions/setup-project/action.yml: input 'registry-role-arn' must exist, be optional and default to empty"* ]]
+  [[ "$output" == *".github/actions/setup-project/action.yml: input 'codeartifact-domain' must exist, be optional and default to empty"* ]]
+  [[ "$output" == *".github/actions/setup-project/action.yml: input 'aws-region' must exist, be optional and default to empty"* ]]
+  [[ "$output" == *".github/actions/setup-project/action.yml: the step that runs registry-login.sh must carry exactly 'if: inputs.registry-role-arn"* ]]
+  [[ "$output" == *".github/actions/setup-project/action.yml: the login step needs an id and no continue-on-error"* ]]
+  [[ "$output" == *".github/actions/setup-project/action.yml: the composite declares outputs: the registry token must not leave it"* ]]
+}
+
+@test "GL2 red: a second reader of the token, a reader that is not the install and an install without the env are named" {
+  mkdir -p "$FX/.github/actions/setup-project"
+  cat >"$FX/.github/actions/setup-project/action.yml" <<'YAML'
+inputs: {}
+runs:
+  using: composite
+  steps:
+    - id: registry
+      if: inputs.registry-role-arn != ''
+      shell: bash
+      run: scripts/registry-login.sh token
+    - name: leak
+      shell: bash
+      run: echo "${{ steps.registry.outputs.token }}"
+    - name: Immutable install
+      shell: bash
+      run: scripts/install-dirs.sh install
+YAML
+  red registry-login.bats "setup-project/action.yml: the token output is read by a step that does not run the immutable install"
+  [[ "$output" == *"setup-project/action.yml: the install step must receive the token as env CODEARTIFACT_AUTH_TOKEN"* ]]
+}
+
+@test "GL2 red: two steps reading the token are named with the count" {
+  mkdir -p "$FX/.github/actions/setup-project"
+  cat >"$FX/.github/actions/setup-project/action.yml" <<'YAML'
+inputs: {}
+runs:
+  using: composite
+  steps:
+    - id: registry
+      if: inputs.registry-role-arn != ''
+      shell: bash
+      run: scripts/registry-login.sh token
+    - name: Immutable install
+      shell: bash
+      env: { CODEARTIFACT_AUTH_TOKEN: "${{ steps.registry.outputs.token }}" }
+      run: scripts/install-dirs.sh install
+    - name: second reader
+      shell: bash
+      env: { T: "${{ steps.registry.outputs.token }}" }
+      run: scripts/install-dirs.sh install
+YAML
+  red registry-login.bats "setup-project/action.yml: the token output (steps.registry.outputs.token) must be read by exactly one step (found 2)"
+}
+
+@test "GL3 red: an unmasked token, a write to GITHUB_ENV, a persisted npmrc, a literal _authToken and exported AWS credentials are named with their line" {
+  cat >"$FX/scripts/registry-login.sh" <<'SH'
+#!/usr/bin/env bash
+token="$(aws codeartifact get-authorization-token --output json)"
+echo "token=$token" >>"$GITHUB_OUTPUT"
+mask "$token"
+echo "AWS_SECRET_ACCESS_KEY=$sk" >>"$GITHUB_ENV"
+export AWS_SESSION_TOKEN="$st"
+npm config set //host/:_authToken abc
+SH
+  cat >"$FX/scripts/install-dirs.sh" <<'SH'
+#!/usr/bin/env bash
+printf '//host/:_authToken=%s\n' "$CODEARTIFACT_AUTH_TOKEN" >"$HOME/.npmrc"
+SH
+  red registry-login.bats "scripts/registry-login.sh: line 5 writes to or reads \$GITHUB_ENV"
+  [[ "$output" == *"scripts/registry-login.sh: line 7 persists registry configuration"* ]]
+  [[ "$output" == *"scripts/registry-login.sh: line 6 exports AWS credentials"* ]]
+  [[ "$output" == *"scripts/registry-login.sh: never masks \$jwt"* ]]
+  [[ "$output" == *"scripts/registry-login.sh: masks \$token (line 4) after writing to GITHUB_OUTPUT (line 3)"* ]]
+  [[ "$output" == *"scripts/install-dirs.sh: line 2 persists registry configuration"* ]]
+  [[ "$output" == *"scripts/install-dirs.sh: line 2 writes an _authToken that is not a \${VAR} reference"* ]]
+  [[ "$output" == *"scripts/install-dirs.sh: the user config is not a mktemp file"* ]]
+  [[ "$output" == *"scripts/install-dirs.sh: no trap removes the temporary user config"* ]]
+}
+
+@test "GR15 red (login amendment): the token in the setup-project env from anything but the login step, or in a second step, is named" {
+  mkdir -p "$FX/.github/actions/setup-project"
+  cat >"$FX/.github/actions/setup-project/action.yml" <<'YAML'
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: echo one
+      env: { CODEARTIFACT_AUTH_TOKEN: "${{ secrets.NPM_TOKEN }}" }
+YAML
+  red no-static-registry-token.bats ".github/actions/setup-project/action.yml: env 'CODEARTIFACT_AUTH_TOKEN' carries a registry token ('\${{ secrets.NPM_TOKEN }}')"
+  [[ "$output" == *"setup-project/action.yml: must set CODEARTIFACT_AUTH_TOKEN from \${{ steps.registry.outputs.token }} in exactly one step (found 0)"* ]]
+}

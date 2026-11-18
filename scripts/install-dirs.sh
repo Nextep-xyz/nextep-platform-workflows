@@ -27,6 +27,23 @@ case "$mode" in
     done
     ;;
   install)
+    # Private packages from CodeArtifact (optional, SPEC section 0 "Enmienda Login del registry"). setup-project hands the token only in the
+    # env: of this step. The user config is a TEMPORARY file that holds a REFERENCE (${CODEARTIFACT_AUTH_TOKEN}), never the value; npm and
+    # pnpm expand it themselves. It reaches them through NPM_CONFIG_USERCONFIG in this process only and is deleted on exit, so nothing
+    # persists: no project .npmrc, no ~/.npmrc, no runner env file (gate G4). No token = no user config = the install is exactly what it was.
+    if [[ -n ${CODEARTIFACT_AUTH_TOKEN:-} ]]; then
+      [[ -n ${REGISTRY_ENDPOINT:-} && -n ${REGISTRY_SCOPE:-} ]] ||
+        die "install-dirs: CODEARTIFACT_AUTH_TOKEN needs REGISTRY_ENDPOINT and REGISTRY_SCOPE"
+      [[ $REGISTRY_SCOPE =~ ^@[a-z0-9][a-z0-9._-]*$ ]] || die "install-dirs: REGISTRY_SCOPE must be an npm scope such as @example"
+      [[ $REGISTRY_ENDPOINT =~ ^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+/$ ]] ||
+        die "install-dirs: REGISTRY_ENDPOINT must be an https URL ending in '/'"
+      userconfig="$(mktemp)"
+      trap 'rm -f "$userconfig"' EXIT
+      # shellcheck disable=SC2016
+      # (the auth line is the endpoint without its scheme: //host/path/)
+      printf '%s:registry=%s\n%s:_authToken=${CODEARTIFACT_AUTH_TOKEN}\n' "$REGISTRY_SCOPE" "$REGISTRY_ENDPOINT" "${REGISTRY_ENDPOINT#*:}" >"$userconfig"
+      export NPM_CONFIG_USERCONFIG="$userconfig"
+    fi
     for d in "${dirs[@]}"; do
       [[ -f $d/package.json ]] || die "install-dirs: '$d' has no package.json"
       [[ -f $d/$lock ]] || die "install-dirs: '$d' has no $lock (an immutable install needs the lockfile)"

@@ -1,5 +1,5 @@
 name: setup-project
-description: Package manager + Node setup, dependency cache and immutable install; optional Python toolchain with pinned requirements.
+description: Package manager + Node setup, dependency cache and immutable install; optional Python toolchain with pinned requirements; optional OIDC login to CodeArtifact for private packages.
 inputs:
   package-manager:
     description: npm or pnpm.
@@ -27,6 +27,31 @@ inputs:
     default: ""
   python-requirements:
     description: Comma separated requirements files (relative paths), installed in order. Every requirement must be pinned with == (or carry hashes).
+    required: false
+    default: ""
+  # Optional login to CodeArtifact (SPEC.md section 0, "Enmienda Login del registry"). All empty = no role is assumed and the install is what it always was.
+  registry-role-arn:
+    description: READ-ONLY registry role to assume through OIDC (from a repository variable, never a literal). Empty disables the login. The calling job needs id-token write.
+    required: false
+    default: ""
+  codeartifact-domain:
+    description: CodeArtifact domain. Needed with registry-role-arn.
+    required: false
+    default: ""
+  codeartifact-domain-owner:
+    description: Account id that owns the CodeArtifact domain. Needed with registry-role-arn.
+    required: false
+    default: ""
+  codeartifact-repository:
+    description: CodeArtifact repository the private packages are installed from. Needed with registry-role-arn.
+    required: false
+    default: ""
+  registry-scope:
+    description: npm scope served by that repository, for example @example. Needed with registry-role-arn.
+    required: false
+    default: ""
+  aws-region:
+    description: AWS region of the CodeArtifact domain. Needed with registry-role-arn.
     required: false
     default: ""
 runs:
@@ -61,12 +86,34 @@ runs:
         node-version-file: ${{ inputs.node-version-file }}
         cache: ${{ inputs.package-manager }}
         cache-dependency-path: ${{ steps.roots.outputs.lockfiles }}
+    # The login is INLINE on purpose (gate G11: a composite does not call another one). The role is read-only; the token is masked and
+    # leaves this step only as an output, which the install step below (and no other) reads.
+    - name: Get the registry token
+      id: registry
+      if: inputs.registry-role-arn != ''
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        INPUT_REGISTRY_ROLE_ARN: ${{ inputs.registry-role-arn }}
+        INPUT_CODEARTIFACT_DOMAIN: ${{ inputs.codeartifact-domain }}
+        INPUT_CODEARTIFACT_DOMAIN_OWNER: ${{ inputs.codeartifact-domain-owner }}
+        INPUT_CODEARTIFACT_REPOSITORY: ${{ inputs.codeartifact-repository }}
+        INPUT_REGISTRY_SCOPE: ${{ inputs.registry-scope }}
+        INPUT_AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/registry-login.sh" token
     - name: Immutable install
       shell: bash
       env:
         SCRIPTS: ${{ github.action_path }}/../../../scripts
         INSTALL_DIRS: ${{ inputs.install-dirs }}
         PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        # Empty when the login is off. The ONLY place the token reaches an environment (gate GR15); install-dirs.sh turns it into an
+        # ephemeral user config that holds a reference to this variable, never the value.
+        CODEARTIFACT_AUTH_TOKEN: ${{ steps.registry.outputs.token }}
+        REGISTRY_ENDPOINT: ${{ steps.registry.outputs.endpoint }}
+        REGISTRY_SCOPE: ${{ inputs.registry-scope }}
       run: |
         set -euo pipefail
         "$SCRIPTS/install-dirs.sh" install

@@ -8,7 +8,18 @@ arg_after() { # arg_after <flag>
   done
 }
 ALL_ARGS=("$@")
+# With FAKE_AWS_ENV_LOG set, records which credentials every CodeArtifact call ran with (the registry-login tests prove they come from
+# the assumed role, and only there).
+if [[ -n ${FAKE_AWS_ENV_LOG:-} && $1 == codeartifact ]]; then
+  echo "$2 key=${AWS_ACCESS_KEY_ID:-} secret=${AWS_SECRET_ACCESS_KEY:-} session=${AWS_SESSION_TOKEN:-}" >>"$FAKE_AWS_ENV_LOG"
+fi
 case "$1 $2" in
+  "sts assume-role-with-web-identity")
+    if [[ -n ${FAKE_STS_ASSUME_FAIL:-} ]]; then echo "AccessDenied: not authorized to perform sts:AssumeRoleWithWebIdentity" >&2; exit 254; fi
+    [[ -n $(arg_after --web-identity-token) && -n $(arg_after --role-arn) ]] || { echo "fake aws: assume-role-with-web-identity without a token or a role" >&2; exit 2; }
+    printf '{"Credentials": {"AccessKeyId": "%s", "SecretAccessKey": "%s", "SessionToken": "%s", "Expiration": "2030-01-01T00:00:00+00:00"}}
+' "${FAKE_STS_KEY-ASIAFAKEKEY0001}" "${FAKE_STS_SECRET-fake-sts-secret-Hq29Zr}" "${FAKE_STS_SESSION-fake-sts-session-Lm73Wd}"
+    ;;
   "ssm get-parameter")
     if [[ " ${FAKE_MISSING:-} " == *" $(arg_after --name) "* ]]; then echo "ParameterNotFound" >&2; exit 254; fi
     case "$(arg_after --name)" in

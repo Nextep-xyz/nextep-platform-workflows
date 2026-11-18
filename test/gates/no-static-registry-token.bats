@@ -10,6 +10,10 @@ TOKEN_NAME_RE='token|secret|passw|credential|npmrc|auth'
 # the one place allowed to put the token in an environment, and the only value it may carry
 TOKEN_ENV_RE='^(CODEARTIFACT_AUTH_TOKEN|NODE_AUTH_TOKEN|NPM_TOKEN|NPM_CONFIG_.*|.*_AUTH_TOKEN)$'
 PUBLISH_COMPOSITE=.github/actions/package-publish/action.yml
+# Amendment (v1.5.0, registry login): the install step of setup-project gets the CodeArtifact token of the optional OIDC login, from the
+# output of the login step and nowhere else. GL1/GL2 (registry-login.bats) fence that composite; this gate admits exactly that pair.
+LOGIN_COMPOSITE=.github/actions/setup-project/action.yml
+LOGIN_TOKEN_VALUE='${{ steps.registry.outputs.token }}'
 
 @test "GR15: no package contract, workflow or caller declares or passes a token, a secret or a password" {
   gate_require_tools yq jq
@@ -49,21 +53,24 @@ PUBLISH_COMPOSITE=.github/actions/package-publish/action.yml
   gate_finish GR15
 }
 
-@test "GR15: the registry token reaches an environment only in the package-publish composite, from its input, and nowhere else under .github/" {
+@test "GR15: the registry token reaches an environment only in the package-publish composite (from its input) and in the setup-project install (from the login step), and nowhere else under .github/" {
   gate_require_tools yq jq
   gate_discover GR15 .github -type f '(' -name '*.yml' -o -name '*.yaml' ')'
-  local files=("${GATE_SUBJECTS[@]}") f key val found=0
+  local files=("${GATE_SUBJECTS[@]}") f key val found_publish=0 found_login=0
   GATE_VIOLATIONS=()
   for f in "${files[@]}"; do
     while IFS=$'\t' read -r key val; do
       if [[ $f == "$PUBLISH_COMPOSITE" && $key == CODEARTIFACT_AUTH_TOKEN && $val == '${{ inputs.auth-token }}' ]]; then
-        found=$((found + 1))
+        found_publish=$((found_publish + 1))
+      elif [[ $f == "$LOGIN_COMPOSITE" && $key == CODEARTIFACT_AUTH_TOKEN && $val == "$LOGIN_TOKEN_VALUE" ]]; then
+        found_login=$((found_login + 1))
       else
-        gate_violation "$f" "env '$key' carries a registry token ('$val'): only $PUBLISH_COMPOSITE may set CODEARTIFACT_AUTH_TOKEN, from \${{ inputs.auth-token }} (GR15)"
+        gate_violation "$f" "env '$key' carries a registry token ('$val'): only $PUBLISH_COMPOSITE (from \${{ inputs.auth-token }}) and $LOGIN_COMPOSITE (from $LOGIN_TOKEN_VALUE) may set CODEARTIFACT_AUTH_TOKEN (GR15)"
       fi
     done < <(gate_json "$f" | jq -r --arg re "$TOKEN_ENV_RE" '[.. | objects | select(has("env")) | .env | objects | to_entries[] | select(.key | test($re)) | [.key, (.value | tostring)]] | .[] | @tsv')
   done
-  ((found > 0)) || gate_violation "$PUBLISH_COMPOSITE" "does not set CODEARTIFACT_AUTH_TOKEN from inputs.auth-token (a gate that finds nothing proves nothing)"
+  ((found_publish > 0)) || gate_violation "$PUBLISH_COMPOSITE" "does not set CODEARTIFACT_AUTH_TOKEN from inputs.auth-token (a gate that finds nothing proves nothing)"
+  ((found_login == 1)) || gate_violation "$LOGIN_COMPOSITE" "must set CODEARTIFACT_AUTH_TOKEN from $LOGIN_TOKEN_VALUE in exactly one step (found $found_login)"
   gate_finish GR15
 }
 
