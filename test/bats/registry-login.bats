@@ -131,7 +131,7 @@ visible() { grep -v '^::add-mask::' <<<"$output" || true; }
   [ "$(grep -c 'key=ASIAFAKEKEY0001 secret=fake-sts-secret-Hq29Zr session=fake-sts-session-Lm73Wd' "$FAKE_AWS_ENV_LOG")" -eq 2 ]
 }
 
-# ---- failures end the step, they are never swallowed -----------------------------------------------------------------
+# ---- error paths ---------------------------------------------------------------------------------------------------
 
 @test "a denied AssumeRoleWithWebIdentity fails naming the trust policy, and CodeArtifact is never asked" {
   FAKE_STS_ASSUME_FAIL=1 run "$SCRIPTS/registry-login.sh" token

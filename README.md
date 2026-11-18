@@ -6,7 +6,7 @@
 
 **Estado:** P1 (`lego-aws-cicd` y `lego-aws-environment-deploy`) implementada y verificada **solo en local**
 (bats, actionlint, shellcheck, gitleaks). **No verificado contra una cuenta AWS real**: spikes S1/S3/S4 e integración
-en `dev` pendientes (`docs/adr/`, `test/sandbox/README.md`). Los releases (`vX.Y.Z` y el alias `v1`) los crea solo `release.yml`.
+en `dev` pendientes (`docs/adr/`, `test/sandbox/README.md`). Los releases (`vX.Y.Z` y el alias `v1`) los crea solo `release.yml`, un workflow manual que calcula la versión (`docs/runbook.md` §8).
 La enmienda vigente sobre el resto del diseño está en `SPEC.md §0`; la guía de adopción en `docs/runbook.md`.
 
 **Este repo es público.** No contiene secretos, cuentas cloud, URLs internas ni referencias a proyectos

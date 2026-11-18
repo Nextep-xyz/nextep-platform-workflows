@@ -242,3 +242,83 @@ This is a check of the package managers, **not** of CodeArtifact.
 - the exact set of read actions of the role (`GetAuthorizationToken`, `sts:GetServiceBearerToken`, `GetRepositoryEndpoint`, `ReadFromRepository`) and `job_workflow_ref` as an IAM condition (ADR 0001);
 - a lockfile that stores the CodeArtifact tarball URL (it matches the standard pattern of the endpoint, so the install should resolve it through the scope registry).
 
+## 8. Releasing this repository (`release.yml`)
+
+A release is **one manual workflow**, not a recipe of commands. `release.yml` is the only thing that creates the tags `vX.Y.Z` and moves the alias `vX` (the tag ruleset is configured in GitHub, not in this repository).
+It works out **whether** there is something to release and **which version** it gets, checks that the CI is green, runs the suite, publishes the release and verifies the result on the remote. Anyone with permission to run workflows can do it by reading this section.
+
+### 8.1 How to release
+
+1. Merge what you want to release into `main` and let `self-ci` finish. The workflow refuses to run from any other branch.
+2. **Always start with a dry run.** *Actions* → *release* → *Run workflow* → branch `main`, `dry_run` ticked. Or, from PowerShell:
+
+   ```powershell
+   gh workflow run release.yml --ref main -f dry_run=true
+   # wait a few seconds so the new run shows up, then take it:
+   $id = (gh run list --workflow release.yml --limit 1 --json databaseId | ConvertFrom-Json)[0].databaseId
+   gh run watch $id --exit-status
+   gh run view $id --log | Select-String 'next=|level=|release='
+   ```
+
+3. Read the plan (section 8.4). If it is what you expect, run it for real, with the same inputs and `dry_run` off:
+
+   ```powershell
+   gh workflow run release.yml --ref main
+   ```
+
+   To skip versions or to cut a major, pass the version explicitly (section 8.3): `gh workflow run release.yml --ref main -f version=1.5.0`.
+4. The job ends green only after the final verification passed. Nothing else to do: no `git tag`, no `git push`, no manual checks.
+
+### 8.2 Inputs
+
+| Input | Values | Effect |
+|---|---|---|
+| `bump` | `auto` (default), `patch`, `minor` | `auto` computes the level from the changes. `patch` / `minor` force the level but **never below what the contracts require** (a forced `patch` over an additive contract change is refused). There is no `major` here |
+| `version` | empty (default) or `X.Y.Z` | An explicit version. **The only way to a major**, and the way to skip versions. Needs `bump=auto`. It must be greater than the last release and must not exist |
+| `dry_run` | `false` (default) / `true` | Computes the plan and checks the CI, then stops: it does not run the suite, build the tree, commit, tag or push. Nothing changes |
+
+### 8.3 What it decides
+
+- **Is there anything to release?** Everything versioned counts **except** the paths listed in [`docs/release-surface.yml`](release-surface.yml) (docs, tests, root markdown, the CI of this repository, the release machinery itself). A new file outside that list triggers a release by default: a release too many is cheap, a change that never ships is not.
+  If nothing on the surface changed since the last release, the run ends **green with no tag** and says so in the summary. That is also what a second dispatch queued behind a release does.
+- **Which level?** The highest of three, computed against the last release:
+
+  | Source | patch | minor | major |
+  |---|---|---|---|
+  | **Contracts** (`contracts/*.contract.yml`, a floor that does not depend on how a commit was written) | none of the below | a new optional input, secret, output or job; a new contract; a changed `default` | a removed or renamed input, secret, output or job; a changed `type`; an input that becomes `required`; a new `required` input without a default or a new required secret; a deleted contract or workflow |
+  | **Commits that touch the surface** (`type(scope)!: subject`) | `fix`, `ref`, `infra`, `chore`, `docs` (and an unrecognised prefix, with a warning) | `feat` | a `!` after the type, or a `BREAKING CHANGE:` footer |
+  | `bump` | `patch` | `minor` | never |
+
+- **A major is never automatic.** If the changes are incompatible, `auto` fails and lists each one. To proceed, update the trust policies of **every** account first (they list `@refs/tags/v1`; a `v2` is a new reference) and then pass `version=2.0.0`. Skipping the trust policies means the first deploy that pins `v2` is denied.
+- **The base of the comparison** is the parent of the last release commit, not the tag itself: the release commit is built on top of the source commit and is not in the history of `main`.
+
+### 8.4 Reading the summary
+
+The summary of the run is the plan. It lists the last release, the surface files changed, **each contract change with its level**, each commit that touches the surface with its level, the warnings, the final level and the next version. The same values are in the log as `release=`, `last=`, `base=`, `next=`, `level=`.
+Commit subjects shown there are neutralised (workflow commands and markup are escaped): they are data, never executed. After a real release the summary also has a table with the commit that `vX.Y.Z` and `vX` point to, the parent of the release commit and the released source.
+
+### 8.5 When something fails
+
+| Message | Cause | What to do |
+|---|---|---|
+| `releases are cut from main only` | Run started from another branch | Re-run from `main` |
+| `an explicit version needs bump=auto` | `version` and `bump=patch/minor` together | Choose one |
+| `there is no release tag yet: the first release needs an explicit --version` | No `vX.Y.Z` tag in the clone | Pass `version` (and check the checkout fetched the tags) |
+| `... include an incompatible one and auto never produces a major` | A contract or a commit breaks compatibility | See the list in the message; if it is intended, update the trust policies and pass `version`; if not, fix the change |
+| `--bump patch is below the mechanical floor minor` | The contracts add something and you forced a lower level | Use `auto` or the level the message says |
+| `version X is not greater than the last release` / `vX already exists` | The explicit version is behind or taken | Pick a greater version. A published tag is never moved or deleted |
+| `vX.Y.Z is anomalous: its commit must have exactly one parent` / `...is not the canonical 'release: ...'` | A tag that was **not** created by `release.yml` (a manual or lightweight tag) | Stop. The comparison base would be false. Find out who created it; do not delete it by hand without a decision of the maintainers |
+| `the base ... is not an ancestor of HEAD` | `main` was rewritten after the last release | Stop and investigate; releases assume a linear history from the released source |
+| `the CI of <sha> is not green` / `did not finish within 600s` | A job declared in `self-ci.yml` failed, or never finished | Fix `main` (or re-run the failed job) and dispatch again. The required jobs are read from `self-ci.yml`; do not list them anywhere else |
+| `0 surface files discovered` / `0 contracts discovered` | The tree has no surface or no contracts: the decision would be over nothing | The checkout or the tree is broken. Do not release |
+| `the release plan could not be computed` | Any of the above in `next-version.sh` (the reason is in the log and in the summary) | Read the line before it |
+| `verify-release-tags: ... do not point to the same commit` / `not the released source` | **The tags are already published.** The check ran after the push | Do not retry and do not move anything. Compare what the summary lists and ask the maintainers |
+| The checkout fails with an authentication error | The release token is missing or expired | Rotate it (it needs the `workflows` permission); it is not covered by this workflow |
+
+### 8.6 Rules that do not change
+
+- **Never create, move or delete a tag by hand**, not even to test. Only `release.yml` does, and only `vX.Y.Z` (immutable) and `vX` (the alias, which moves forward on each release).
+- **A published release is not undone.** A defect is fixed with the next patch. What can be reverted is the code, with a normal commit.
+- The tags are `vX.Y.Z` and `vX` only: the telemetry collector rejects anything else (`vX.Y`, a pre-release, a sha). Pre-releases (`-dev.N`) of the *packages* (section 6) are a different thing and live in the consumers' repositories.
+- Every step that runs the suite, builds the tree or changes git is gated by `dry_run`, and the job holds only `contents: write` and `checks: read`; the release token is used for the checkout and nowhere else (gates RA5 and RA10).
+

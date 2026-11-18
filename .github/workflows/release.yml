@@ -1,17 +1,34 @@
 # Release of this repository (SPEC D3/D4). The ONLY way to create `vX.Y.Z` and move the alias `vX`: the tag ruleset
 # (configured in GitHub, not in this file) must reject any other actor. Never run it from a branch other than main.
-#   1. runs the whole suite on the commit to release;
-#   2. scripts/release.sh pins every internal reference to THAT commit (gate G11 checks the result on disk);
-#   3. commits the rewritten tree on top of it and tags it: callers pin this release commit, composites resolve to the source.
+# One button: it works out WHAT to release and WHICH version, and checks the result, instead of a recipe of commands.
+#   1. scripts/next-version.sh compares main with the last release (surface files, contracts, commit types) and computes the version,
+#      or says there is nothing to release; `auto` never produces a major (that needs an explicit `version`);
+#   2. scripts/ci/require-green-ci.sh refuses a commit whose CI (the jobs declared in self-ci.yml) is not green;
+#   3. `dry_run` stops here: it publishes the plan in the summary and changes nothing;
+#   4. the whole suite runs on the commit to release;
+#   5. scripts/release.sh pins every internal reference to THAT commit (gate G11 checks the result on disk);
+#   6. the rewritten tree is committed on top of it and tagged: callers pin this release commit, composites resolve to the source;
+#   7. scripts/ci/verify-release-tags.sh checks on the remote that vX.Y.Z and vX are the same commit and a child of the source.
+# Procedure and errors: docs/runbook.md. Every step that runs the suite or changes anything is gated by dry_run (gate RA5).
 name: release
 
 on:
   workflow_dispatch:
     inputs:
+      bump:
+        description: "auto = computed from the changes. patch/minor force the level, never below what the contracts require. A major is never automatic: use version."
+        type: choice
+        options: [auto, patch, minor]
+        default: auto
       version:
-        description: "Semantic version without the v, for example 1.0.0. An existing vX.Y.Z is never moved or deleted."
+        description: "Optional explicit X.Y.Z (no v): the only way to a major or to skip versions. Leave empty to compute it. Needs bump=auto. An existing vX.Y.Z is never moved or deleted."
         type: string
-        required: true
+        required: false
+        default: ""
+      dry_run:
+        description: "Compute and verify only: publish the plan in the summary and change nothing."
+        type: boolean
+        default: false
 
 concurrency:
   group: release
@@ -21,9 +38,10 @@ jobs:
   release:
     name: release
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 35
     permissions:
       contents: write
+      checks: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,35 +49,65 @@ jobs:
           fetch-tags: true
           # GITHUB_TOKEN cannot push commits that touch .github/workflows (the release rewrites them): a token with the `workflows` permission is required.
           token: ${{ secrets.RELEASE_TOKEN }}
-      - name: Guard the version and the branch
+      - name: Guard the branch and the inputs
         env:
-          VERSION: ${{ inputs.version }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           [[ $REF_NAME == main ]] || { echo "::error::releases are cut from main only (got '$REF_NAME')"; exit 1; }
-          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be X.Y.Z (got '$VERSION')"; exit 1; }
-          if git rev-parse --verify --quiet "refs/tags/v${VERSION}" >/dev/null; then
-            echo "::error::v${VERSION} already exists: a published tag is never moved or deleted; cut a new version"; exit 1
-          fi
+          case $INPUT_BUMP in auto | patch | minor) ;; *) echo "::error::bump must be auto, patch or minor (a major needs an explicit version)"; exit 1 ;; esac
+          [[ -z $INPUT_VERSION || $INPUT_VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::version must be empty or X.Y.Z (got '$INPUT_VERSION')"; exit 1; }
+          [[ -z $INPUT_VERSION || $INPUT_BUMP == auto ]] || { echo "::error::an explicit version needs bump=auto"; exit 1; }
       - name: Install pinned tools
         run: scripts/ci/install-tools.sh
+      - name: Compute the release plan
+        id: plan
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          NEXT_VERSION_REPORT: ${{ runner.temp }}/release-plan.md
+        run: |
+          set -euo pipefail
+          rc=0
+          scripts/next-version.sh --bump "$INPUT_BUMP" --version "$INPUT_VERSION" >"$RUNNER_TEMP/release-plan.out" || rc=$?
+          if [[ -f $NEXT_VERSION_REPORT ]]; then cat "$NEXT_VERSION_REPORT" >>"$GITHUB_STEP_SUMMARY"; fi
+          if ((rc != 0)); then echo "::error::the release plan could not be computed (the reason is in the log above and in the summary)"; exit 1; fi
+          cat "$RUNNER_TEMP/release-plan.out"
+          cat "$RUNNER_TEMP/release-plan.out" >>"$GITHUB_OUTPUT"
+          if [[ $DRY_RUN == true ]]; then printf '\n_Dry run: nothing was tagged, pushed or changed._\n' >>"$GITHUB_STEP_SUMMARY"; fi
+      - name: Require a green CI on the commit
+        if: steps.plan.outputs.release == 'true'
+        env:
+          # Read-only use of the job token (checks: read). The push below uses RELEASE_TOKEN, set on the checkout.
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: scripts/ci/require-green-ci.sh
       - name: Run the suite on the commit to release
+        if: inputs.dry_run != true && steps.plan.outputs.release == 'true'
         env:
           REQUIRE_TOOLS: "1"
           # Organization secret with internal names (G13). Missing => the public-names gate fails the release.
           INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}
         run: bats --recursive test/bats test/gates
       - name: Build the release tree
+        if: inputs.dry_run != true && steps.plan.outputs.release == 'true'
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: scripts/release.sh "$SOURCE_SHA" "$RUNNER_TEMP/release-tree"
       - name: Commit, tag and move the major alias
+        if: inputs.dry_run != true && steps.plan.outputs.release == 'true'
         env:
-          VERSION: ${{ inputs.version }}
+          VERSION: ${{ steps.plan.outputs.next }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::the resolved version must be X.Y.Z (got '$VERSION')"; exit 1; }
+          if git rev-parse --verify --quiet "refs/tags/v${VERSION}" >/dev/null; then
+            echo "::error::v${VERSION} already exists: a published tag is never moved or deleted; cut a new version"; exit 1
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch --detach "$SOURCE_SHA"
@@ -72,3 +120,9 @@ jobs:
           git tag -f "v${VERSION%%.*}" "v${VERSION}"
           git push origin "refs/tags/v${VERSION}"
           git push --force origin "refs/tags/v${VERSION%%.*}"
+      - name: Verify the published tags
+        if: inputs.dry_run != true && steps.plan.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.plan.outputs.next }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: scripts/ci/verify-release-tags.sh "$VERSION" "$SOURCE_SHA"

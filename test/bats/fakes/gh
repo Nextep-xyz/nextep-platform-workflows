@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Fake gh (no network). Only `gh api ... check-runs ...` is supported: it prints the rows a real call would print after its --jq
+# (tab-separated: name, status, conclusion), read from the fixture files of the sequence:
+#   FAKE_GH_ROWS=<prefix>   the Nth call prints <prefix>.N (the last one repeats when there are fewer files than calls);
+#                           a missing .1 prints nothing (the "no check-runs at all" case).
+#   FAKE_GH_RC=<n>          exit code instead of answering (API failure).
+# Every call is logged to $FAKE_LOG; the token is never logged.
+echo "gh $*" >>"${FAKE_LOG:-/dev/null}"
+[[ -z ${FAKE_GH_RC:-} ]] || { echo "fake gh: api error" >&2; exit "$FAKE_GH_RC"; }
+[[ $1 == api && $* == *check-runs* ]] || { echo "fake gh: unsupported call: $*" >&2; exit 2; }
+count_file="${FAKE_GH_ROWS:?}.count"
+n=$(($(cat "$count_file" 2>/dev/null || echo 0) + 1))
+echo "$n" >"$count_file"
+f="$FAKE_GH_ROWS.$n"
+if [[ ! -f $f ]]; then
+  # repeat the last existing file of the sequence
+  k=$((n - 1))
+  while ((k >= 1)) && [[ ! -f $FAKE_GH_ROWS.$k ]]; do k=$((k - 1)); done
+  f="$FAKE_GH_ROWS.$k"
+fi
+[[ -f $f ]] && cat "$f"
+exit 0

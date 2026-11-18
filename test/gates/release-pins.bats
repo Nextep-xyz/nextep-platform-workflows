@@ -54,7 +54,8 @@ COLLECTOR_REF_RE='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/lego-[a-z0
   done
 }
 
-@test "T10: release.yml only creates tags of the shapes vX.Y.Z and vX, and only accepts an X.Y.Z version" {
+@test "T10: release.yml only creates tags of the shapes vX.Y.Z and vX, and only from a resolved X.Y.Z version" {
+  gate_require_tools yq jq
   gate_discover T10 .github/workflows -maxdepth 1 -type f -name release.yml
   local f=${GATE_SUBJECTS[0]} line n=0 shapes=0 tok
   grep -qF '[[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]' "$GATES_ROOT/$f" ||
@@ -70,5 +71,27 @@ COLLECTOR_REF_RE='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/lego-[a-z0
     done < <(grep -oE 'v\$\{VERSION[^}]*\}' <<<"$line" || true)
   done <"$GATES_ROOT/$f"
   ((shapes > 0)) || gate_violation "$f" "no 'git tag' command found (a gate that finds nothing proves nothing)"
+
+  # Release automation: the version is no longer a raw input but the RESOLVED one (the `next` output of the plan). Every step that
+  # creates a tag must (a) take VERSION from that output, never from an input, and (b) check it is X.Y.Z in the SAME step, BEFORE its
+  # first `git tag` / `git push`: the guard has to sit next to the command it protects, not somewhere else in the file.
+  local step run ver i guard_line first_cmd tagging=0
+  local from_plan='^\$\{\{ steps\.[A-Za-z0-9_-]+\.outputs\.next \}\}$'
+  while IFS= read -r step; do
+    tagging=$((tagging + 1))
+    run=$(jq -r '.run' <<<"$step")
+    ver=$(jq -r '.env.VERSION // ""' <<<"$step")
+    [[ $ver =~ $from_plan ]] ||
+      gate_violation "$f" "the step that creates tags takes VERSION from '$ver': it must be the resolved version of the plan (\${{ steps.<id>.outputs.next }}), never a raw input"
+    guard_line=0 first_cmd=0 i=0
+    while IFS= read -r line; do
+      i=$((i + 1))
+      if ((guard_line == 0)) && [[ $line == *'[[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]'* ]]; then guard_line=$i; fi
+      if ((first_cmd == 0)) && [[ $line =~ git[[:space:]]+(tag|push) ]]; then first_cmd=$i; fi
+    done <<<"$run"
+    ((guard_line > 0 && guard_line < first_cmd)) ||
+      gate_violation "$f" "the step that creates tags does not check '[[ \$VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+\$ ]]' before its first 'git tag' / 'git push'"
+  done < <(gate_json "$f" | jq -c '.jobs[]?.steps[]? | select((.run // "") | test("git\\s+tag"))')
+  ((tagging > 0)) || gate_violation "$f" "no step that creates tags was found (a gate that finds nothing proves nothing)"
   gate_finish T10
 }
