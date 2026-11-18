@@ -1,0 +1,38 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "MintTheRegistryToken",
+      "Effect": "Allow",
+      "Action": "codeartifact:GetAuthorizationToken",
+      "Resource": "arn:aws:codeartifact:<REGION>:<ACCOUNT>:domain/<DOMAIN>"
+    },
+    {
+      "Sid": "BearerTokenForCodeArtifactOnly",
+      "Effect": "Allow",
+      "Action": "sts:GetServiceBearerToken",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "sts:AWSServiceName": "codeartifact.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "ResolveTheEndpointOfOneRepository",
+      "Effect": "Allow",
+      "Action": "codeartifact:GetRepositoryEndpoint",
+      "Resource": "arn:aws:codeartifact:<REGION>:<ACCOUNT>:repository/<DOMAIN>/<REPOSITORY>"
+    },
+    {
+      "Sid": "PublishAndVerifyOneScope",
+      "Effect": "Allow",
+      "Action": [
+        "codeartifact:PublishPackageVersion",
+        "codeartifact:PutPackageMetadata",
+        "codeartifact:DescribePackageVersion"
+      ],
+      "Resource": "arn:aws:codeartifact:<REGION>:<ACCOUNT>:package/<DOMAIN>/<REPOSITORY>/npm/<NAMESPACE>/*"
+    }
+  ]
+}
