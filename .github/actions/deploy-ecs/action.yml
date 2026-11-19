@@ -91,8 +91,8 @@ runs:
         IMAGE_TAG: ${{ github.sha }}
         ENVIRONMENT: ${{ inputs.environment }}
         DOCKERFILE: ${{ inputs.dockerfile }}
-        DOCKER_CONTEXT: ${{ inputs.docker-context }}
-        DOCKER_TARGET: ${{ inputs.docker-target }}
+        BUILD_CONTEXT: ${{ inputs.docker-context }}
+        BUILD_TARGET: ${{ inputs.docker-target }}
       run: |
         set -euo pipefail
         "$SCRIPTS/build-push-image.sh"
