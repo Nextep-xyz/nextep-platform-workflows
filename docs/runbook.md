@@ -1,4 +1,4 @@
-# Runbook: adoption and operation of `lego-aws-cicd`, `lego-aws-environment-deploy` and `lego-aws-package-publish` (section 6)
+# Runbook: adoption and operation of `lego-aws-cicd`, `lego-aws-environment-deploy`, `lego-aws-package-publish` (section 6), `lego-node-ci` and `lego-package-release` (section 9)
 
 > Status: **written, not exercised against a real account.** Everything marked NOT VERIFIED is an open question.
 
@@ -337,3 +337,72 @@ No person owns it: a suspended or departed account does not stop a release. A pe
 Errors of the first step (`Mint the release token`): `Not Found` = the App is not installed on this repository; `A JSON web token could not be decoded` = the key is
 malformed or from another App; `Resource not accessible by integration` = the App lacks `workflows: write`.
 
+
+## 9. Packages without a registry (`lego-node-ci` and `lego-package-release`, not released yet)
+
+A public repository of npm packages can distribute them as the **tarball of a GitHub Release**: no registry, no cloud, no OIDC role, no stored token. Two workflows, both named `lego-*` and neither `lego-aws-*` (they hold no cloud credentials; the gates treat that name
+as the *cloud-free family*, `test/gates/cloud-free.bats`). Pin them by tag (`@v1` or `@vX.Y.Z`), never `@main`. Their file names and job names are irreversible, like the others.
+
+### 9.1 `lego-node-ci`: the CI of the repository
+
+Contract: [`contracts/lego-node-ci.contract.yml`](../contracts/lego-node-ci.contract.yml). Caller: [`test/sandbox/callers/node-ci.yml`](../test/sandbox/callers/node-ci.yml).
+
+One job, **`ci`** (permissions `contents: read`): immutable install (`setup-project`, pnpm, no registry login), `pnpm test`, `pnpm typecheck`. Optional input `node-version` (default `22`). The repository must declare its pnpm version in `packageManager`.
+
+- The caller fires it on `pull_request` and on `push` to `main`. **Never `pull_request_target`**: it would run the code of a pull request with the permissions of the base (gate CF-CALLER).
+- **Optional secret `INTERNAL_DENYLIST`** (the list of internal names for the public-names gate of a public repository). It reaches **only** the `env:` of the test step, and every name in it is masked before the tests run. Pass it **by name** (`secrets: { INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }} }`), never with `secrets: inherit` (gate CF-CALLER).
+  It is the only secret of the family, and only here (gate CF-SEC; an amendment of G17, see `SPEC.md` section 0).
+- `GATE_FORK_PR` is derived from the event (`'true'` for a pull request from a fork, `'false'` otherwise), so a gate that demands the denylist can skip that demand for a fork: a fork pull request never receives secrets. Without the secret **and** not a fork, the public-names gate of the consumer is expected to fail: that is the point.
+- **What the caller decides:** the job id of the caller is part of the required check (`<job-id> / ci`, for example `checks / ci`). Until that check is **required** in the ruleset of `main`, the tests run and block nothing.
+
+### 9.2 `lego-package-release`: a Release per version tag
+
+Contract: [`contracts/lego-package-release.contract.yml`](../contracts/lego-package-release.contract.yml). Caller: [`test/sandbox/callers/package-release.yml`](../test/sandbox/callers/package-release.yml).
+Inputs: `tag-prefix` (required, for example `shop-lib-v`), `package-dir` (default `.`), `node-version` (default `22`). No token input, no secret (gate CF-SEC).
+
+Two jobs, names irreversible:
+
+| Job | Permissions | Does |
+|---|---|---|
+| `gate` | `contents: read` | Checks the inputs and that the tag is `<tag-prefix>X.Y.Z` **and equals** the `version` of `package.json` (it names both values and the tag it expected); installs; runs `pnpm test`; runs **one** `npm pack`; reviews **that tarball** (no `publishConfig`, no 12-digit account id, no ARN with an account; findings name file and line, never the value); computes its `.sha256`; uploads both as an artifact |
+| `release` | `contents: write` (the only write of the run) | Does **not** check out and runs **no** code of the repository: downloads the artifact, checks that its digest is the one the gate computed (it travels apart, as a job output), **refuses if the Release already exists** (no `--clobber`, ever), creates the Release with the `.tgz` and the `.sha256`, then downloads both assets again and compares the digest |
+
+- **The bytes published are the bytes reviewed.** The tarball is built once, in the gate, and never rebuilt. Because the `release` job runs nothing of the repository, **`prepack` and every lifecycle script run in the gate**, which holds no write permission and no token: a package that builds in `prepack` works (unlike section 6.5, where a registry token is in play).
+  `npm pack` is used, not `pnpm pack`: a `workspace:` dependency is not rewritten.
+- Only a stable version (`X.Y.Z`) is released; any suffix is refused.
+- **The token** is the `GITHUB_TOKEN` of the run. It is read in one place: the `env:` of the step of the `package-release-publish` composite, which only the `release` job uses (gate CF-TOKEN). The script masks it first, hands it to `gh` through the environment only, and never prints or traces it (gate CF-NOREWRITE).
+- **One release per tag at a time**: `concurrency` group `package-release-<tag>`, `cancel-in-progress: false`.
+- A Release created with `GITHUB_TOKEN` does not trigger other workflows (a `release:` event); do not hang automation on it.
+
+**Consuming a release:** download both assets, `sha256sum --check <file>.tgz.sha256`, then `npm install ./<file>.tgz` (or the pnpm equivalent).
+
+### 9.3 What the caller decides (the workflows cannot)
+
+1. **A ruleset of tags**: only maintainers can create `<tag-prefix>*`; nobody can update or delete one. Whoever can push the tag starts a release, and a tag that moves would point a Release at other code.
+2. **The permissions of the caller's job**: `contents: write` for `lego-package-release` (the callee's `release` job cannot hold more than the caller grants) and `contents: read` for `lego-node-ci`. No `id-token` anywhere (gate CF-CALLER).
+3. **The triggers**: the release caller fires **only** on `push.tags`. The CI caller on `pull_request` and `push`.
+4. **`checks / ci` as a required status check** of `main`, and a ruleset of `main` that requires the pull request. Without them the CI is advice.
+5. The repository secret `INTERNAL_DENYLIST`, if the public-names gate is used.
+
+### 9.4 Reading a failure
+
+| Message (fragment) | Meaning | Action |
+|---|---|---|
+| `tag '…' does not match the package.json version '…'` | The tag and the version differ; the message names the tag it expected | Fix the version or the tag. **A tag that already exists is not moved**: delete it as a maintainer and push the right one, or bump the version |
+| `sets publishConfig` | The tarball's `package.json` carries `publishConfig` | Remove it: where a package is published is decided by the workflow |
+| `holds a 12-digit number that may be a cloud account id` / `holds an ARN with an account id` | The tarball holds something that looks like an account | Remove it from what the package ships (`files`); the message names file and line, never the value |
+| `the Release '…' already exists` | A published Release is never rewritten | Bump the version. A re-run after a successful release always ends here, harmlessly |
+| `could not tell whether the Release '…' exists` | The API answered something other than "release not found" (permissions, outage) | Re-run the `release` job; nothing was created |
+| `is not the one the gate computed` | The artifact changed between the jobs | Re-run the whole workflow; nothing was released |
+| `does not hold the reviewed bytes` | After creating it, the Release's assets differ from the reviewed ones | **Do not use that Release.** Delete it by hand as a maintainer and release a new version |
+| `pack: expected exactly one .tgz` / `holds no file besides package.json` | The pack produced none or several, or an empty package | Check `files` and the `prepack` of the package |
+
+### 9.5 NOT VERIFIED
+
+Written from the documentation and verified with `gh`, `npm` and `pnpm` fakes and the gates. Nothing here has run on GitHub:
+
+- That the `env:` of a step that **uses a composite** (`INTERNAL_DENYLIST` and `GATE_FORK_PR` in `lego-node-ci`) reaches the steps inside it. If it did not, the public-names gate would fail closed (no denylist), not pass.
+- The behaviour of `actions/upload-artifact` and `actions/download-artifact` at the pinned versions with a directory artifact, and that the files land at the root of the download path.
+- The wording `release not found` of `gh release view` across `gh` versions (the script refuses to continue on anything else), and `gh release create --verify-tag` with `GITHUB_TOKEN`.
+- That `contents: write` alone is enough for `gh release view/create/download` on the repository.
+- A caller that passes `INTERNAL_DENYLIST` empty (the secret does not exist) and a fork pull request end to end.

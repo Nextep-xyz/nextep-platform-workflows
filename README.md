@@ -63,6 +63,8 @@ flowchart LR
 |---|---|---|
 | `lego-aws-cicd` | Implementado (P1) | Flujo rápido: gate → migración (si hay pendientes, túnel SSM) → deploy. `compute: lambda \| ecs` |
 | `lego-aws-environment-deploy` | Implementado (P1) | Ambiente completo: gate → infra (sin el stack del rol OIDC) → migraciones → verificación → seed; rollback por `image-tag` |
+| `lego-node-ci` | Implementado (sin liberar) | CI de un repo Node/pnpm: instalación inmutable, `pnpm test`, `pnpm typecheck`. Sin nube. `docs/runbook.md` §9 |
+| `lego-package-release` | Implementado (sin liberar) | Un paquete npm como tarball de un GitHub Release (sin registry): gate (tag == versión, tests, un `npm pack` revisado, sha256) → release (crea y verifica; nunca reescribe). Sin nube. `docs/runbook.md` §9 |
 | `lego-azure-satellite` | Diseño | Satélites Core–Satélite en Azure. Fuera de P1 |
 
 Los dos de AWS son por **flujo**, no por cómputo (`SPEC.md §0`). Secuencia del rápido:

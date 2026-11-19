@@ -79,6 +79,7 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 - **Reglas de los workflows (cada una tiene su gate):**
   - Toda `uses:` de terceros por **SHA**, no por tag. Referencias internas a composites por SHA (`release.sh`).
   - Todo job declara `permissions:` mínimos; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `deploy`, `infra-deploy`, `post-deploy`) y en `telemetry-phone-home`, que lo usa para un token del colector (nunca de una nube) con permisos exactos `{contents: read, id-token: write}`, sin checkout, sin comandos del caller y sin credenciales cloud. En la familia de paquetes (`lego-aws-package-*`), `publish` lo tiene con permisos exactos `{contents: read, id-token: write}`. Enmienda del login del registry (v1.5.0): también `quality-and-security-gate` de `lego-aws-cicd` y `lego-aws-environment-deploy`, solo para instalar paquetes privados con un rol de SOLO lectura del registry; G2 exige permisos exactos (`contents: read`, `pull-requests: write` opcional, `id-token: write`), ningún paso que asuma un rol de deploy y `registry-role-arn` en cada `setup-project`.
+  - **Familia sin nube** (`lego-*` que no es `lego-aws-*`: `lego-node-ci`, `lego-package-release`, aún sin liberar: la versión la calcula `release.yml`; runbook §9): sin rol, sin `id-token`, sin telemetría. El único secret permitido es `INTERNAL_DENYLIST` (opcional, solo `lego-node-ci`, solo en el `env:` del paso de test); el token del run solo en el `env:` de un paso del composite que usa el job `release`. `contents: write` solo en ese job (`release`), con permisos exactos `{contents: write}`, sin checkout ni código del repo del caller; un Release publicado no se reescribe (nunca `--clobber`). Gates `CF-*` en `test/gates/cloud-free.bats`. **Un workflow nuevo con otro nombre queda en esta familia por defecto**, la más estricta: los gates descubren `lego-*.yml`, no `lego-aws-*.yml`.
   - **Un composite no referencia a otro composite** (gate G11): el SHA de release se escribe solo en los workflows. La cuenta AWS nunca es input ni literal (GH5): sale del output `account-id` de `aws-oidc`.
   - **Nunca** `${{ inputs.* }}` ni `${{ github.event.* }}` dentro de `run:`: pásalos por `env:`.
   - **Nunca** `pull_request_target` con código del PR, ni `NODE_TLS_REJECT_UNAUTHORIZED`.
@@ -123,7 +124,7 @@ Idea: `README.md`. Contratos y plan: `SPEC.md` (**la enmienda de §0 manda sobre
 | Ruta | Qué hay |
 |---|---|
 | `README.md`, `SPEC.md`, `AGENTS.md` | Idea; contratos y plan; este archivo |
-| `.github/workflows/` | `lego-aws-cicd.yml`, `lego-aws-environment-deploy.yml`, `self-ci.yml` (required check), `release.yml` (único que crea tags) |
+| `.github/workflows/` | `lego-aws-cicd.yml`, `lego-aws-environment-deploy.yml`, `lego-node-ci.yml`, `lego-package-release.yml`, `self-ci.yml` (required check), `release.yml` (único que crea tags) |
 | `.github/actions/` | Composites: aws-oidc, setup-project, ssm-tunnel, migrate, validate-inputs, quality-gate, deploy-lambda, deploy-ecs, infra-deploy, post-deploy |
 | `scripts/` | Lógica en bash, con tests (`test/bats/`) |
 | `contracts/` | Contrato de cada workflow (lo comprueba el gate `contract-sync`) |
