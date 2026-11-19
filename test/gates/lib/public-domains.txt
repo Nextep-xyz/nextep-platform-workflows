@@ -10,3 +10,4 @@ localhost
 .*\.example\.[a-z]+
 example\.[a-z]+
 json-schema\.org
+(www\.)?apache\.org
