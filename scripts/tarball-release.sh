@@ -6,7 +6,7 @@
 #   tarball-release.sh verify   (release) downloads the published assets again and compares their sha256
 # `check` and `pack` run in the gate job (contents: read, no token anywhere). `create` and `verify` run in the release job, which has
 # no checkout and runs no code of the caller's repository: they only move files and talk to the GitHub API.
-# Inputs arrive through env: PACKAGE_DIR TAG_PREFIX NODE_VERSION REF_TYPE REF_NAME (check, pack); OUT_DIR (pack);
+# Inputs arrive through env: PACKAGE_DIR TAG_PREFIX RELEASE_NODE_VERSION REF_TYPE REF_NAME (check, pack); OUT_DIR (pack);
 # GH_TOKEN GH_REPO ASSETS_DIR TARBALL EXPECTED_SHA256 TAG_PREFIX REF_TYPE REF_NAME (create, verify).
 # The token is only ever read by `gh` from its environment: it is never an argument, a file or a line of output.
 set -euo pipefail
@@ -51,7 +51,7 @@ case "$cmd" in
       err "input 'package-dir' must be '.' or a relative path with no '..', no spaces and no trailing '/' (got '$dir')"
     fi
     [[ $prefix =~ $PREFIX_RE ]] || err "input 'tag-prefix' must end in 'v' and use lower case, for example shop-lib-v (got '$prefix')"
-    [[ ${NODE_VERSION:-} =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || err "input 'node-version' must be a version such as 22 or 22.11 (got '${NODE_VERSION:-}')"
+    [[ ${RELEASE_NODE_VERSION:-} =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || err "input 'node-version' must be a version such as 22 or 22.11 (got '${RELEASE_NODE_VERSION:-}')"
     # The caller decides when it runs; the only legitimate trigger is the push of a version tag.
     [[ ${REF_TYPE:-} == tag ]] || err "this workflow releases from a version tag only (got ref type '${REF_TYPE:-}', ref '${REF_NAME:-}')"
     finish

@@ -17,7 +17,7 @@ setup() {
   mkdir -p pkg/dist
   printf '{"name":"@example/shop-lib","version":"1.2.3","main":"dist/index.js"}\n' >pkg/package.json
   printf 'module.exports = 1;\n' >pkg/dist/index.js
-  export PACKAGE_DIR=pkg TAG_PREFIX=shop-lib-v NODE_VERSION=22 REF_TYPE=tag REF_NAME=shop-lib-v1.2.3
+  export PACKAGE_DIR=pkg TAG_PREFIX=shop-lib-v RELEASE_NODE_VERSION=22 REF_TYPE=tag REF_NAME=shop-lib-v1.2.3
   export OUT_DIR="$BATS_TEST_TMPDIR/out"
 }
 
@@ -65,7 +65,7 @@ release_env() {
 }
 
 @test "check: a branch or a manual run is not a release; every shape problem is reported at once" {
-  REF_TYPE=branch PACKAGE_DIR=../x TAG_PREFIX=lib NODE_VERSION=latest run "$SCRIPTS/tarball-release.sh" check
+  REF_TYPE=branch PACKAGE_DIR=../x TAG_PREFIX=lib RELEASE_NODE_VERSION=latest run "$SCRIPTS/tarball-release.sh" check
   [ "$status" -eq 1 ]
   local frag
   for frag in "input 'package-dir'" "input 'tag-prefix'" "input 'node-version'" "version tag only"; do
