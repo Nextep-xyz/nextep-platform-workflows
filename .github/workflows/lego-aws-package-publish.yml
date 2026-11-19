@@ -82,38 +82,38 @@ jobs:
         with:
           persist-credentials: false
       - name: Validate the inputs and the tag trigger
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: validate
           inputs-json: ${{ toJSON(inputs) }}
       # GR12: the tag and the version of package.json agree, and the name is inside the scope, before anything else runs.
       - name: Check the manifest against the tag
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: check-manifest
           inputs-json: ${{ toJSON(inputs) }}
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           package-manager: ${{ inputs.package-manager }}
           node-version: ${{ inputs.node-version }}
           install-dirs: ${{ inputs.install-dirs }}
       - name: Test
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           label: test
           command: ${{ inputs.test-command }}
           project: ${{ inputs.project }}
           aws-region: ${{ inputs.aws-region }}
       - name: Build
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           label: build
           command: ${{ inputs.build-command }}
           project: ${{ inputs.project }}
           aws-region: ${{ inputs.aws-region }}
       - name: Scan the tarball
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: scan-tarball
           inputs-json: ${{ toJSON(inputs) }}
@@ -138,58 +138,58 @@ jobs:
           persist-credentials: false
       # This job holds id-token, so it re-checks what it is about to publish instead of trusting the previous runner.
       - name: Validate the inputs and the tag trigger
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: validate
           inputs-json: ${{ toJSON(inputs) }}
       - name: Check the manifest against the tag
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: check-manifest
           inputs-json: ${{ toJSON(inputs) }}
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           package-manager: ${{ inputs.package-manager }}
           node-version: ${{ inputs.node-version }}
           install-dirs: ${{ inputs.install-dirs }}
       # The caller's build runs BEFORE the role is assumed: no cloud credentials exist in its environment.
       - name: Build
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/run-project-command@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           label: build
           command: ${{ inputs.build-command }}
           project: ${{ inputs.project }}
           aws-region: ${{ inputs.aws-region }}
       - name: Scan the tarball
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-check@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: scan-tarball
           inputs-json: ${{ toJSON(inputs) }}
       - name: Assume the publishing role
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
       - name: Get the registry token and endpoint
         id: registry
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: token
           inputs-json: ${{ toJSON(inputs) }}
       - name: Check the version does not exist yet
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: precheck
           inputs-json: ${{ toJSON(inputs) }}
       - name: Publish to CodeArtifact
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-publish@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-publish@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           auth-token: ${{ steps.registry.outputs.token }}
           endpoint: ${{ steps.registry.outputs.endpoint }}
           inputs-json: ${{ toJSON(inputs) }}
       - name: Verify the published version
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-registry@47bb13f34888696be9cbeb6251bd9b781511d7fe
         with:
           command: verify
           inputs-json: ${{ toJSON(inputs) }}
