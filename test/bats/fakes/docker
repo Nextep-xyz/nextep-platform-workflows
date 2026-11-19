@@ -1,3 +1,9 @@
 #!/usr/bin/env bash
+# Like the real CLI, DOCKER_CONTEXT selects a docker *context* (buildx then looks for a builder of that name:
+# `ERROR: no builder "." found`). Our scripts must never leak it into the environment of `docker`.
+if [[ -n ${DOCKER_CONTEXT:-} ]]; then
+  echo "ERROR: no builder \"$DOCKER_CONTEXT\" found" >&2
+  exit 1
+fi
 echo "docker $*" >>"${FAKE_LOG:-/dev/null}"
 exit "${FAKE_DOCKER_RC:-0}"

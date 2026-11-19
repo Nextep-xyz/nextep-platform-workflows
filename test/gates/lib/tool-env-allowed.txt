@@ -1,0 +1,14 @@
+# Variables in a tool namespace (AWS_, PG*, NODE_, NPM_, GH_, GIT_, PNPM_, PIP_, TF_, UV_) that this repo names on purpose.
+# Format: NAME  # why it is used. Checked by test/gates/tool-env-namespaces.bats (G27): a new name fails the gate until it is declared
+# here; a name nobody uses any more fails it too. The DOCKER_/BUILDX_/BUILDKIT_/COMPOSE_ namespaces have no allowlist (forbidden).
+AWS_REGION            # the AWS CLI/SDK read it: region of every call
+AWS_ACCESS_KEY_ID     # the AWS CLI reads it: temporary credentials of the registry-login assume-role
+AWS_SECRET_ACCESS_KEY # the AWS CLI reads it: temporary credentials of the registry-login assume-role
+AWS_SESSION_TOKEN     # the AWS CLI reads it: temporary credentials of the registry-login assume-role
+AWS_ACCOUNT_ID        # our own variable (the AWS CLI does not read it): account id of the caller, for ARNs and role names
+GH_TOKEN              # the gh CLI reads it: token for release and telemetry calls
+NPM_CONFIG_USERCONFIG # npm reads it: per-run .npmrc that carries the registry token, never the user-level one
+PGSSLROOTCERT         # libpq/psql read it: CA bundle for sslmode=verify-full in run-migration
+NODE_EXTRA_CA_CERTS   # node reads it: same CA bundle for node-based migration tools
+NODE_OPTIONS          # named only in the fetch-deploy-env deny-list: a deploy env cannot inject node flags
+NODE_TLS_             # named only as the NODE_TLS_.* pattern of the fetch-deploy-env deny-list

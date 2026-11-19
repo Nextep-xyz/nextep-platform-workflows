@@ -158,7 +158,7 @@ lambda_env() {
 }
 
 @test "build-push-image: plain docker build with the target and an immutable tag; latest only in dev" {
-  export REGISTRY=reg.example.com ECR_REPOSITORY=shop-api-dev IMAGE_TAG=0123abc ENVIRONMENT=dev DOCKERFILE=apps/api/Dockerfile DOCKER_CONTEXT=. DOCKER_TARGET=runner
+  export REGISTRY=reg.example.com ECR_REPOSITORY=shop-api-dev IMAGE_TAG=0123abc ENVIRONMENT=dev DOCKERFILE=apps/api/Dockerfile BUILD_CONTEXT=. BUILD_TARGET=runner
   run "$SCRIPTS/build-push-image.sh"
   [ "$status" -eq 0 ]
   grep -q 'docker build --file apps/api/Dockerfile --tag reg.example.com/shop-api-dev:0123abc --target runner --tag reg.example.com/shop-api-dev:latest .' "$FAKE_LOG"
@@ -172,7 +172,7 @@ lambda_env() {
 }
 
 @test "build-push-image: an invalid tag is refused" {
-  export REGISTRY=r ECR_REPOSITORY=x IMAGE_TAG='bad tag' ENVIRONMENT=dev DOCKERFILE=Dockerfile DOCKER_CONTEXT=.
+  export REGISTRY=r ECR_REPOSITORY=x IMAGE_TAG='bad tag' ENVIRONMENT=dev DOCKERFILE=Dockerfile BUILD_CONTEXT=.
   run "$SCRIPTS/build-push-image.sh"
   [ "$status" -eq 1 ]
 }

@@ -93,6 +93,17 @@ YAML
   red no-tls-bypass.bats "scripts/bad.sh: mentions NODE_TLS_REJECT_UNAUTHORIZED"
 }
 
+@test "G27 red: a DOCKER_CONTEXT in a script and an undeclared AWS_ variable are named in their files, and a stale allowlist entry is named" {
+  printf '#!/usr/bin/env bash\nexport DOCKER_%s=.\n' "CONTEXT" >"$FX/scripts/bad.sh"
+  red tool-env-namespaces.bats "scripts/bad.sh: names DOCKER_CONTEXT"
+  rm "$FX/scripts/bad.sh"
+  printf '#!/usr/bin/env bash\necho "$AWS_%s"\n' "NEW_THING" >"$FX/scripts/undeclared.sh"
+  export TOOL_ENV_ALLOWLIST="$BATS_TEST_TMPDIR/allow.txt"
+  printf 'AWS_OLD  # gone\n' >"$TOOL_ENV_ALLOWLIST"
+  red tool-env-namespaces.bats "scripts/undeclared.sh: names AWS_NEW_THING"
+  red tool-env-namespaces.bats "stale entry AWS_OLD"
+}
+
 @test "G16 red: a deploy job that cancels in progress is named" {
   cat >"$WF" <<'YAML'
 on: { workflow_call: {} }
@@ -909,4 +920,21 @@ runs:
 YAML
   red no-static-registry-token.bats ".github/actions/setup-project/action.yml: env 'CODEARTIFACT_AUTH_TOKEN' carries a registry token ('\${{ secrets.NPM_TOKEN }}')"
   [[ "$output" == *"setup-project/action.yml: must set CODEARTIFACT_AUTH_TOKEN from \${{ steps.registry.outputs.token }} in exactly one step (found 0)"* ]]
+}
+
+@test "L1 red: an edited LICENSE, a NOTICE without a copyright line and a missing NOTICE are named; no files at all is '0 subjects'" {
+  run bats "$REPO_ROOT/test/gates/license.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"L1: 0 subjects discovered"* ]]
+
+  cp "$REPO_ROOT/LICENSE" "$FX/LICENSE"
+  echo "an edit" >>"$FX/LICENSE"
+  echo "just a name" >"$FX/NOTICE"
+  red license.bats "LICENSE: is not the canonical Apache-2.0 text"
+  [[ "$output" == *"NOTICE: must carry a 'Copyright <year> <holder>' line"* ]]
+
+  cp "$REPO_ROOT/LICENSE" "$FX/LICENSE"
+  rm "$FX/NOTICE"
+  red license.bats "NOTICE: missing from the repository root"
+  [[ "$output" != *"LICENSE: is not the canonical"* ]]
 }
