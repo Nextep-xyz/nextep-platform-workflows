@@ -1,0 +1,39 @@
+name: package-release-publish
+description: Release steps of lego-package-release - creates the GitHub Release from the downloaded artifact (create) and checks the published assets against the reviewed digest (verify). Runs no code of the caller's repository.
+inputs:
+  command:
+    description: create or verify.
+    required: true
+  assets-dir:
+    description: Directory with the downloaded artifact (the tarball and its .sha256).
+    required: true
+  tarball:
+    description: File name of the tarball, from the gate.
+    required: true
+  sha256:
+    description: sha256 of the tarball, computed by the gate.
+    required: true
+  tag-prefix:
+    description: Prefix of the version tag.
+    required: true
+runs:
+  using: composite
+  steps:
+    # The token of the run is read here and in no other file of the release path (gate CF-TOKEN): only the env: of this step.
+    - name: Run the step
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        COMMAND: ${{ inputs.command }}
+        ASSETS_DIR: ${{ inputs.assets-dir }}
+        TARBALL: ${{ inputs.tarball }}
+        EXPECTED_SHA256: ${{ inputs.sha256 }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+        GH_REPO: ${{ github.repository }}
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        set -euo pipefail
+        case "$COMMAND" in create | verify) ;; *) echo "::error::package-release-publish: unknown command '$COMMAND'" >&2; exit 1 ;; esac
+        "$SCRIPTS/tarball-release.sh" "$COMMAND"

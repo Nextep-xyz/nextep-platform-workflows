@@ -1,0 +1,18 @@
+name: node-ci
+description: Runs the Node steps of lego-node-ci and of the gate of lego-package-release (test, typecheck) with pnpm. The environment of the calling step (INTERNAL_DENYLIST, GATE_FORK_PR) reaches the command; nothing is printed.
+inputs:
+  command:
+    description: test or typecheck.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run the command
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        COMMAND: ${{ inputs.command }}
+      run: |
+        set -euo pipefail
+        case "$COMMAND" in test | typecheck) ;; *) echo "::error::node-ci: unknown command '$COMMAND'" >&2; exit 1 ;; esac
+        "$SCRIPTS/node-ci.sh" "$COMMAND"

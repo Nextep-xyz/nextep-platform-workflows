@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fake `pnpm` for node-ci.bats. Every call is appended to $FAKE_LOG (arguments only) together with what the call saw of the environment
+# the gate reads: whether INTERNAL_DENYLIST was there (never its value) and the value of GATE_FORK_PR.
+#   FAKE_PNPM_FAIL=<subcommand>   that subcommand exits 1
+#   FAKE_PNPM_PRINT=<text>        `pnpm test` prints that text (a test that echoes something sensitive by mistake)
+if [[ -n ${INTERNAL_DENYLIST:-} ]]; then seen=present; else seen=absent; fi
+echo "pnpm $* denylist=$seen fork=${GATE_FORK_PR-unset}" >>"${FAKE_LOG:-/dev/null}"
+[[ -z ${FAKE_PNPM_PRINT:-} || $1 != test ]] || echo "$FAKE_PNPM_PRINT"
+[[ ${FAKE_PNPM_FAIL:-} != "$1" ]] || { echo "fake pnpm: $1 failed" >&2; exit 1; }
+exit 0

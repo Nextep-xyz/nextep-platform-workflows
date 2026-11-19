@@ -154,3 +154,21 @@ YAML
   rr_release 1.0.0
   export NEXT_VERSION_REPORT="$BATS_TEST_TMPDIR/report.md"
 }
+
+# absent <pattern> <file>: fails the test when the pattern is in the file. (A bare `! grep ...` in the middle of a bats test never fails it.)
+absent() {
+  if grep -q -- "$1" "$2"; then
+    echo "unexpected '$1' in $2"
+    return 1
+  fi
+}
+
+# absent_r <pattern> <path>...: same, recursively over files and directories.
+absent_r() {
+  local pattern=$1
+  shift
+  if grep -rq -- "$pattern" "$@"; then
+    echo "unexpected '$pattern' under: $*"
+    return 1
+  fi
+}

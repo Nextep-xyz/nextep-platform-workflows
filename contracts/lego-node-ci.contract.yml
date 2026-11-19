@@ -1,0 +1,16 @@
+# Contract of .github/workflows/lego-node-ci.yml - machine-readable source of truth (gate G12).
+# The job name (`ci`) is IRREVERSIBLE: it is part of the name of the required status check of every caller
+# (<caller-job-id> / ci). Changing it, or an input name, is a MAJOR version.
+# The ONLY secret is the optional INTERNAL_DENYLIST (the public-names gate of a public repository). Gate CF-SEC fences it: no other
+# secret, only here, never required, only as an env: of the test step. There is no cloud credential and no token of any kind.
+workflow: lego-node-ci
+inputs:
+  node-version:
+    type: string
+    default: "22"
+secrets:
+  INTERNAL_DENYLIST:
+    required: false
+outputs: {}
+jobs:
+  - ci

@@ -1,12 +1,25 @@
 #!/usr/bin/env bash
 # Fake `npm` for the bats tests of package-publish.sh. Every call is appended to $FAKE_LOG (arguments only, never the environment).
 #   pack --dry-run --json   lists every file under the current directory (except node_modules) as npm would
+#   pack --pack-destination D   writes D/<name>-<version>.tgz (scope slash becomes a dash, like npm) holding every file under the current
+#                           directory (except node_modules) under package/; FAKE_PACK_FAIL makes it fail, FAKE_PACK_TWICE leaves a second .tgz in D
 #   publish                 checks the token reached the environment, copies the --userconfig file to $FAKE_NPMRC_COPY and
 #                           creates the $FAKE_CA_STATE marker (the fake aws then reports the version as published)
 echo "npm $*" >>"${FAKE_LOG:-/dev/null}"
 case "$1" in
   pack)
     if [[ -n ${FAKE_PACK_FAIL:-} ]]; then echo "npm error pack failed" >&2; exit 1; fi
+    if [[ " $* " == *" --pack-destination "* ]]; then
+      dest=""
+      for ((i = 1; i <= $#; i++)); do [[ ${!i} == --pack-destination ]] && { j=$((i + 1)); dest=${!j}; }; done
+      name="$(jq -r .name package.json)"; version="$(jq -r .version package.json)"
+      file="${name#@}"; file="${file//\//-}-${version}.tgz"
+      echo "npm notice fake prepack output"
+      tar -czf "$dest/$file" --exclude=./node_modules --transform "s,^\./,package/," .
+      [[ -z ${FAKE_PACK_TWICE:-} ]] || cp "$dest/$file" "$dest/other-0.0.0.tgz"
+      echo "$file"
+      exit 0
+    fi
     echo "npm notice fake pack notice" >&2
     if [[ -n ${FAKE_PACK_EMPTY:-} ]]; then echo '[{"files": []}]'; exit 0; fi
     find . -type f -not -path './node_modules/*' | sed 's|^\./||' | sort | jq -R '{path: .}' | jq -s '[{files: .}]'

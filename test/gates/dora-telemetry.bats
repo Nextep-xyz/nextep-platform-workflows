@@ -46,7 +46,9 @@ JOB=telemetry-phone-home
 
 @test "G17: each contract matches the activation (inputs, no secret, the job listed, no marker)" {
   gate_require_tools yq jq
-  gate_discover G17 contracts -maxdepth 1 -type f -name '*.contract.yml' -not -name 'lego-aws-package-*.contract.yml'
+  # The DEPLOY family, by name (the same carve-out as gate_discover_deploy_workflows): the cloud-free contracts (lego-node-ci, lego-package-release)
+  # have no telemetry and are fenced by test/gates/cloud-free.bats, which also decides what secret they may declare.
+  gate_discover G17 contracts -maxdepth 1 -type f -name 'lego-aws-*.contract.yml' -not -name 'lego-aws-package-*.contract.yml'
   local c json
   for c in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$c")"
@@ -107,10 +109,14 @@ JOB=telemetry-phone-home
   gate_finish T8
 }
 
-@test "T13: every sandbox caller grants id-token: write, and one reports telemetry from variables on a tag (@v1)" {
+@test "T13: every sandbox caller of an aws workflow grants id-token: write, and one reports telemetry from variables on a tag (@v1)" {
   gate_require_tools yq jq
   gate_discover T13 test/sandbox/callers -type f -name '*.yml'
-  local f json reporting=0
+  # Callers of the cloud-free workflows must NOT hold id-token (test/gates/cloud-free.bats, CF-CALLER): the subjects here are the callers of lego-aws-*.
+  local f json reporting=0 all=("${GATE_SUBJECTS[@]}")
+  GATE_SUBJECTS=()
+  for f in "${all[@]}"; do grep -qE 'uses:.*/lego-aws-' "$GATES_ROOT/$f" && GATE_SUBJECTS+=("$f"); done
+  ((${#GATE_SUBJECTS[@]} > 0)) || gate_fail "T13: no sandbox caller of a lego-aws workflow was found (a gate that finds nothing proves nothing)"
   for f in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$f")"
     jq -e '.permissions["id-token"] == "write"' <<<"$json" >/dev/null || gate_violation "$f" "the caller does not grant id-token: write (the deploy job already needs it; the telemetry job must not be what breaks a caller)"

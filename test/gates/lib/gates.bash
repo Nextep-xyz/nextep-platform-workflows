@@ -97,9 +97,18 @@ gate_finish() {
   fi
 }
 
-# The reusable workflows of this repo. Gates about them fail with 0 subjects until the first one exists.
+# EVERY reusable workflow of this repo (lego-*.yml, whatever its family). Gates about them fail with 0 subjects until the first one exists.
+# It used to be lego-aws-*.yml: a workflow with another name (lego-node-ci, lego-package-release) was invisible to the gates that use this
+# helper, which then passed in green over a tree that violated them. The families below are carved out of it BY NAME.
 gate_discover_lego_workflows() {
-  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-*.yml'
+  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-*.yml'
+}
+
+# The workflows with NO cloud (lego-* that are not lego-aws-*): no role, no id-token, no environment, no telemetry. They are a family of
+# their own with their own gates (test/gates/cloud-free.bats). The direction of the exclusion is on purpose: a new lego-* workflow that is not
+# lego-aws-* is a cloud-free workflow, subject to the strictest rules, until someone gives it a family.
+gate_discover_cloudfree_workflows() {
+  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-*.yml' -not -name 'lego-aws-*.yml'
 }
 
 # The workflows of the deploy family (lego-aws-cicd, lego-aws-environment-deploy, and whatever else is named lego-aws-* but is not a

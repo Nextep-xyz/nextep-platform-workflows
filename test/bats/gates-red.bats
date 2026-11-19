@@ -37,7 +37,7 @@ YAML
 
 @test "every workflow-driven gate fails with '0 subjects' when no lego-aws workflow exists" {
   local g
-  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats no-static-registry-token.bats package-publish-flow.bats; do
+  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats no-static-registry-token.bats package-publish-flow.bats cloud-free.bats; do
     run bats "$REPO_ROOT/test/gates/$g"
     [ "$status" -ne 0 ]
     [[ "$output" == *"0 subjects discovered"* ]] || { echo "$g: $output"; return 1; }
@@ -937,4 +937,212 @@ YAML
   rm "$FX/NOTICE"
   red license.bats "NOTICE: missing from the repository root"
   [[ "$output" != *"LICENSE: is not the canonical"* ]]
+}
+
+# ---- the cloud-free family (lego-node-ci, lego-package-release) -----------------------------------------------------------------
+# cf_fixture: copies the real files of the family into $FX, so each test breaks ONE thing in a tree that is otherwise the real one.
+cf_fixture() {
+  rm -rf "$FX/.github/workflows/lego-node-ci.yml" "$FX/.github/workflows/lego-package-release.yml" "$FX/.github/actions/node-ci" \
+    "$FX/.github/actions/package-release-check" "$FX/.github/actions/package-release-publish" "$FX/test/sandbox"
+  mkdir -p "$FX/test/sandbox/callers" "$FX/.github/actions"
+  cp "$REPO_ROOT"/.github/workflows/lego-node-ci.yml "$REPO_ROOT"/.github/workflows/lego-package-release.yml "$FX/.github/workflows/"
+  cp "$REPO_ROOT"/contracts/lego-node-ci.contract.yml "$REPO_ROOT"/contracts/lego-package-release.contract.yml "$FX/contracts/"
+  cp -r "$REPO_ROOT"/.github/actions/node-ci "$REPO_ROOT"/.github/actions/package-release-check "$REPO_ROOT"/.github/actions/package-release-publish "$REPO_ROOT"/.github/actions/setup-project "$FX/.github/actions/"
+  cp "$REPO_ROOT"/scripts/tarball-release.sh "$FX/scripts/"
+  cp "$REPO_ROOT"/test/sandbox/callers/node-ci.yml "$REPO_ROOT"/test/sandbox/callers/package-release.yml "$FX/test/sandbox/callers/"
+  NODECI="$FX/.github/workflows/lego-node-ci.yml"
+  RELEASE="$FX/.github/workflows/lego-package-release.yml"
+  PUBLISH="$FX/.github/actions/package-release-publish/action.yml"
+  SCRIPT="$FX/scripts/tarball-release.sh"
+}
+
+@test "the cloud-free fixture is clean: every cloud-free gate passes on the real files of the family" {
+  cf_fixture
+  run bats "$REPO_ROOT/test/gates/cloud-free.bats"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "discovery red: G2, G12, G23, G3, G5 and G9 SEE a workflow that is not named lego-aws-* (the gap that made them pass over a broken tree)" {
+  cat >"$FX/.github/workflows/lego-node-ci.yml" <<'YAML'
+on:
+  workflow_call:
+    inputs:
+      cmd: { type: string }
+permissions: { contents: read }
+jobs:
+  ci:
+    runs-on: self-hosted
+    permissions: { contents: write, id-token: write }
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "${{ inputs.cmd }}" && NODE_TLS_REJECT_UNAUTHORIZED=0 true
+YAML
+  printf 'workflow: lego-aws-other
+jobs: []
+' >"$FX/contracts/lego-aws-other.contract.yml"   # so that G12 has a contract to discover: it must still name the workflow with none
+  red permissions.bats "lego-node-ci.yml: workflow-level 'permissions:' is forbidden"
+  [[ "$output" == *"lego-node-ci.yml: job 'ci' has 'id-token: write' but this is a cloud-free workflow"* ]]
+  [[ "$output" == *"lego-node-ci.yml: job 'ci' grants write-all/read-all or contents: write"* ]]
+  red contract-sync.bats "lego-node-ci.yml: has no contract (contracts/lego-node-ci.contract.yml)"
+  red runner.bats "lego-node-ci.yml: job 'ci' does not run on ubuntu-latest"
+  red pinned-actions.bats "lego-node-ci.yml: 'actions/checkout@v4' is not pinned"
+  red no-interpolation-in-run.bats "lego-node-ci.yml: run: step #1 interpolates an expression"
+  red no-tls-bypass.bats "lego-node-ci.yml: mentions NODE_TLS_REJECT_UNAUTHORIZED"
+}
+
+@test "G12 red: a cloud-free workflow whose inputs or job names drift from its contract is named" {
+  cf_fixture
+  yq -i '.on.workflow_call.inputs.surprise = {"type": "string", "default": ""}' "$RELEASE"
+  yq -i '.jobs = ["gate", "publish"]' "$FX/contracts/lego-package-release.contract.yml"
+  red contract-sync.bats "lego-package-release.yml: input not in the contract: surprise"
+  [[ "$output" == *"lego-package-release.yml: job names differ from the contract"* ]]
+}
+
+@test "G2 red: contents: write is allowed ONLY to the release job of lego-package-release, and only with exactly that permission" {
+  cf_fixture
+  yq -i '.jobs.gate.permissions.contents = "write"' "$RELEASE"
+  red permissions.bats "lego-package-release.yml: job 'gate' grants write-all/read-all or contents: write"
+  [[ "$output" != *"job 'release' grants"* ]]
+  cf_fixture
+  yq -i '.jobs.release.permissions.packages = "write"' "$RELEASE"
+  red permissions.bats "lego-package-release.yml: job 'release' may hold contents: write only with exactly {contents: write}"
+  cf_fixture
+  yq -i '.jobs.ci.permissions.contents = "write"' "$NODECI"
+  red permissions.bats "lego-node-ci.yml: job 'ci' grants write-all/read-all or contents: write"
+}
+
+@test "G17 and T13 leave the cloud-free family alone; T13 still judges a caller of an aws workflow" {
+  cf_fixture
+  run bats "$REPO_ROOT/test/gates/dora-telemetry.bats" --filter "G17: each contract"
+  [[ "$output" != *"lego-node-ci.contract.yml"* && "$output" != *"lego-package-release.contract.yml"* ]] || { echo "$output"; return 1; }
+  printf 'name: c\non: push\npermissions: { contents: read }\njobs:\n  j:\n    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@main\n' >"$FX/test/sandbox/callers/aws.yml"
+  run bats "$REPO_ROOT/test/gates/dora-telemetry.bats" --filter "T13"
+  [[ "$output" == *"test/sandbox/callers/aws.yml: the caller does not grant id-token: write"* ]] || { echo "$output"; return 1; }
+  [[ "$output" != *"callers/node-ci.yml"* && "$output" != *"callers/package-release.yml"* ]] || { echo "$output"; return 1; }
+}
+
+@test "CF-SEC red: another secret, a required secret, the denylist in the release workflow, credential-looking inputs, a secret read twice or elsewhere and a stale entry are named" {
+  cf_fixture
+  yq -i '.secrets.NPM_TOKEN = {"required": true}' "$FX/contracts/lego-node-ci.contract.yml"
+  yq -i '.on.workflow_call.secrets.NPM_TOKEN = {"required": true} | .on.workflow_call.secrets.INTERNAL_DENYLIST.required = true' "$NODECI"
+  red cloud-free.bats "contracts/lego-node-ci.contract.yml: declares the secret 'NPM_TOKEN'"
+  [[ "$output" == *"contracts/lego-node-ci.contract.yml: secret 'NPM_TOKEN' must be declared with required: false"* ]]
+  [[ "$output" == *"lego-node-ci.yml: declares the secret 'NPM_TOKEN'"* ]]
+  [[ "$output" == *"lego-node-ci.yml: secret 'NPM_TOKEN' must not be required"* ]]
+  [[ "$output" == *"lego-node-ci.yml: secret 'INTERNAL_DENYLIST' must not be required"* ]]
+
+  cf_fixture
+  yq -i '.secrets.INTERNAL_DENYLIST = {"required": false} | .inputs.github-token = {"type": "string"}' "$FX/contracts/lego-package-release.contract.yml"
+  yq -i '.on.workflow_call.secrets.INTERNAL_DENYLIST.required = false | .on.workflow_call.inputs.auth-token = {"type": "string"}' "$RELEASE"
+  red cloud-free.bats "contracts/lego-package-release.contract.yml: declares the secret 'INTERNAL_DENYLIST'"
+  [[ "$output" == *"lego-package-release.yml: declares the secret 'INTERNAL_DENYLIST'"* ]]
+  [[ "$output" == *"contracts/lego-package-release.contract.yml: input 'github-token' looks like a credential"* ]]
+  [[ "$output" == *"lego-package-release.yml: input 'auth-token' looks like a credential"* ]]
+
+  cf_fixture
+  yq -i '(.jobs.ci.steps[] | select(.name == "Typecheck")).env.X = "${{ secrets.INTERNAL_DENYLIST }}"' "$NODECI"
+  red cloud-free.bats "lego-node-ci.yml: secret 'INTERNAL_DENYLIST' is read in more than one place"
+  cf_fixture
+  yq -i '(.jobs.gate.steps[] | select(.id == "pack")).env.Y = "${{ secrets.PAT }}"' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: line"
+  [[ "$output" == *"reads a secret other than the one this workflow may declare"* ]]
+
+  cf_fixture
+  yq -i 'del(.secrets.INTERNAL_DENYLIST)' "$FX/contracts/lego-node-ci.contract.yml"
+  yq -i 'del(.on.workflow_call.secrets) | del(.jobs.ci.steps[] | select(.name == "Test").env.INTERNAL_DENYLIST)' "$NODECI"
+  red cloud-free.bats "contracts/lego-node-ci.contract.yml: is in the CF-SEC allowlist for the secret 'INTERNAL_DENYLIST' but no longer declares it (stale entry"
+}
+
+@test "CF-TOKEN red: the token in a workflow, in a with:, in a run or an argument of the release composite, or in a composite the gate job uses is named" {
+  cf_fixture
+  yq -i '(.jobs.ci.steps[] | select(.name == "Typecheck")).env.GH_TOKEN = "${{ github.token }}"' "$NODECI"
+  red cloud-free.bats "lego-node-ci.yml: mentions the token of the run"
+  cf_fixture
+  yq -i '(.jobs.release.steps[] | select(.with.command == "create")).with.token = "${{ github.token }}"' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: mentions the token of the run"
+  cf_fixture
+  sed -i 's/^        set -euo pipefail$/        set -euo pipefail\n        echo "${{ github.token }}"/' "$PUBLISH"
+  red cloud-free.bats "package-release-publish/action.yml: the token of the run appears 2 time(s) but only 1 time(s) as the value of an env: entry"
+  cf_fixture
+  yq -i '(.jobs.gate.steps[] | select(.id == "pack")).uses = "Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-publish@main"' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: job 'gate' uses 'package-release-publish', the composite that holds the token of the release job"
+}
+
+@test "CF-REL red: a checkout, a run step and a foreign action in the release job, a wrong needs, no per-tag concurrency, a digest from the artifact, two packs, a loose gate and an unchecked tag are named" {
+  cf_fixture
+  yq -i '.jobs.release.steps = [{"uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"}, {"run": "make release"}, {"uses": "example-org/other@0123456789abcdef0123456789abcdef01234567"}] + .jobs.release.steps | .jobs.release.needs = ["gate", "other"] | del(.jobs.release.concurrency)' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: job release uses 'actions/checkout@"
+  [[ "$output" == *"job release has a 'run:' step"* ]]
+  [[ "$output" == *"job release uses 'example-org/other@"* ]]
+  [[ "$output" == *"job release checks out the repository: it must run no code of the caller's repository"* ]]
+  [[ "$output" == *"job release must need exactly the gate job"* ]]
+  [[ "$output" == *"job release needs a concurrency group per tag"* ]]
+
+  cf_fixture
+  yq -i '(.jobs.release.steps[] | select(.with.command == "create")).with.sha256 = "abc" | .jobs.release.concurrency."cancel-in-progress" = true' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: every publish step of job release must take sha256 from needs.gate.outputs.sha256"
+  [[ "$output" == *"job release needs a concurrency group per tag"* ]]
+
+  cf_fixture
+  yq -i '.jobs.gate.steps += [.jobs.gate.steps[] | select(.id == "pack")] | .jobs.gate.permissions.actions = "read"' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: job gate must pack exactly once (found 2 'pack' steps)"
+  [[ "$output" == *"job gate must hold exactly {contents: read}"* ]]
+
+  cf_fixture
+  yq -i 'del(.jobs.gate.steps[] | select(.with.command == "check"))' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: job gate must run the tag/version check before it packs"
+
+  cf_fixture
+  yq -i '.jobs.gate.steps[0].with."persist-credentials" = true | .jobs.gate.steps += [{"run": "npm pack"}]' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: job gate must check out with persist-credentials: false"
+  [[ "$output" == *"a run: step packs the package"* ]]
+}
+
+@test "CF-REL red: with no job that holds contents: write the gate says so, and a stale entry of its allowlist is named" {
+  cf_fixture
+  yq -i '.jobs.release.permissions.contents = "read"' "$RELEASE"
+  red cloud-free.bats "CF-REL: no cloud-free workflow has a job that holds contents: write"
+  cf_fixture
+  yq -i 'del(.jobs.release.steps[] | select((.uses // "") | test("download-artifact")))' "$RELEASE"
+  red cloud-free.bats "the release allowlist names 'actions/download-artifact@' but no release job uses it (stale entry)"
+}
+
+@test "CF-NOREWRITE red: --clobber, a Release created without checking it exists, and the token printed or traced are named" {
+  cf_fixture
+  sed -i 's/--verify-tag --title/--clobber --verify-tag --title/' "$SCRIPT"
+  red cloud-free.bats "scripts/tarball-release.sh: line"
+  [[ "$output" == *"rewrites or removes a Release or its assets"* ]]
+
+  cf_fixture
+  sed -i 's/^      if gh release view "\$tag".*$/      if false; then/' "$SCRIPT"
+  red cloud-free.bats "scripts/tarball-release.sh: must test 'gh release view' BEFORE 'gh release create'"
+
+  cf_fixture
+  sed -i 's/^    tag="\$REF_NAME"$/    tag="$REF_NAME"\n    echo "token=$GH_TOKEN"\n    set -x/' "$SCRIPT"
+  red cloud-free.bats "scripts/tarball-release.sh: line"
+  [[ "$output" == *"uses GH_TOKEN other than in require_env / mask"* ]]
+  [[ "$output" == *"prints the environment or traces the shell"* ]]
+}
+
+@test "CF-CALLER red: an id-token, @main, wrong permissions, secrets: inherit, pull_request_target, a branch trigger on a release and a workflow nobody calls are named" {
+  cf_fixture
+  yq -i '.permissions."id-token" = "write" | .jobs.checks.uses = "example-org/nextep-platform-workflows/.github/workflows/lego-node-ci.yml@main" | .jobs.checks.secrets = "inherit" | .on = {"pull_request_target": null, "push": {"branches": ["main"]}}' "$FX/test/sandbox/callers/node-ci.yml"
+  red cloud-free.bats "test/sandbox/callers/node-ci.yml: a caller of lego-node-ci grants id-token"
+  [[ "$output" == *"the workflow lego-node-ci must be pinned by tag"* ]]
+  [[ "$output" == *"a caller must not use pull_request_target"* ]]
+  [[ "$output" == *"passes 'secrets: inherit'"* ]]
+
+  cf_fixture
+  yq -i '.jobs.checks.secrets = {"NPM_TOKEN": "x"} | .jobs.checks.permissions.contents = "write"' "$FX/test/sandbox/callers/node-ci.yml"
+  red cloud-free.bats "passes the secret 'NPM_TOKEN', which lego-node-ci does not declare"
+  [[ "$output" == *"job 'checks' calls lego-node-ci and must grant exactly {\"contents\":\"read\"}"* ]]
+
+  cf_fixture
+  yq -i '.jobs.release-shop-lib.permissions.contents = "read" | .on.push = {"branches": ["main"]} | .on.workflow_dispatch = null' "$FX/test/sandbox/callers/package-release.yml"
+  red cloud-free.bats "job 'release-shop-lib' calls lego-package-release and must grant exactly {\"contents\":\"write\"}"
+  [[ "$output" == *"a caller of lego-package-release must fire only on the push of version tags"* ]]
+
+  cf_fixture
+  rm "$FX/test/sandbox/callers/package-release.yml"
+  red cloud-free.bats "lego-package-release.yml: no sandbox caller in test/sandbox/callers uses it"
 }

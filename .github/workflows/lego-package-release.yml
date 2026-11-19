@@ -1,0 +1,112 @@
+# Reusable workflow: releases an npm package as the tarball of a GitHub Release (no registry). Gate (tag == package.json version, tests,
+# ONE `npm pack`, review of that tarball, sha256) -> release (downloads the reviewed artifact, refuses an existing Release, creates it,
+# verifies what was published). The bytes released are the bytes reviewed: the tarball is never rebuilt.
+# Contract: contracts/lego-package-release.contract.yml (gate G12). The job names (`gate`, `release`) are IRREVERSIBLE.
+# The caller decides WHEN it runs: the push of a version tag <tag-prefix>X.Y.Z, and grants `contents: write` to its job (the release job
+# needs it). The barrier is a tag ruleset in the caller's repository (docs/runbook.md section 9).
+# No token input and no secret (gate CF-SEC): the Release is created with the GITHUB_TOKEN of the run, which only the `release` job holds with
+# contents: write, and only in the env: of the step that talks to the API (gate CF-TOKEN). That job does not check out and runs no code of the
+# caller's repository.
+name: lego-package-release
+
+on:
+  workflow_call:
+    inputs:
+      package-dir:
+        description: "Directory of the package (the one with its package.json), relative to the repository root."
+        type: string
+        default: "."
+      tag-prefix:
+        description: "Prefix of the version tag; the tag of the run must be <tag-prefix>X.Y.Z, for example shop-lib-v."
+        type: string
+        required: true
+      node-version:
+        description: "Node version."
+        type: string
+        default: "22"
+
+jobs:
+  gate:
+    name: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - name: Check out the caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The tag and the manifest agree before anything is installed.
+      - name: Check the inputs and the tag against package.json
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-check@main
+        with:
+          command: check
+          package-dir: ${{ inputs.package-dir }}
+          tag-prefix: ${{ inputs.tag-prefix }}
+          node-version: ${{ inputs.node-version }}
+      - name: Set up the project
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: pnpm
+          node-version: ${{ inputs.node-version }}
+      - name: Test
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        with:
+          command: test
+      # The one and only `npm pack` of the run. What it produces is what the release job publishes.
+      - name: Pack and review the tarball
+        id: pack
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-check@main
+        with:
+          command: pack
+          package-dir: ${{ inputs.package-dir }}
+          tag-prefix: ${{ inputs.tag-prefix }}
+          node-version: ${{ inputs.node-version }}
+          out-dir: ${{ runner.temp }}/package-release
+      - name: Upload the reviewed tarball and its sha256
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-release
+          path: ${{ steps.pack.outputs.dir }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: release
+    needs: [gate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The only job with a write permission. No checkout and no step that runs code of the caller's repository: it downloads the artifact of
+    # the gate and talks to the GitHub API.
+    permissions:
+      contents: write
+    # One release per tag; a running one is never cancelled.
+    concurrency:
+      group: package-release-${{ github.ref_name }}
+      cancel-in-progress: false
+    steps:
+      - name: Download the reviewed tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: package-release
+          path: ${{ runner.temp }}/package-release
+      - name: Create the Release
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-publish@main
+        with:
+          command: create
+          assets-dir: ${{ runner.temp }}/package-release
+          tarball: ${{ needs.gate.outputs.tarball }}
+          sha256: ${{ needs.gate.outputs.sha256 }}
+          tag-prefix: ${{ inputs.tag-prefix }}
+      - name: Verify the published Release
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-publish@main
+        with:
+          command: verify
+          assets-dir: ${{ runner.temp }}/package-release
+          tarball: ${{ needs.gate.outputs.tarball }}
+          sha256: ${{ needs.gate.outputs.sha256 }}
+          tag-prefix: ${{ inputs.tag-prefix }}

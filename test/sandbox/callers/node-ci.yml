@@ -1,0 +1,20 @@
+# Fictional caller (organization example-org, repository of public npm packages). CI on every pull request and every push to main. The
+# job id of the caller is part of the name of the required status check (<job-id> / ci): make `checks / ci` a required check in the ruleset of
+# main, or the tests run but block nothing (docs/runbook.md section 9). Never `pull_request_target`: this runs the code of the pull request.
+# Pin the workflow by tag (@v1 or @vX.Y.Z), never @main.
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  checks:
+    permissions:
+      contents: read
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-node-ci.yml@v1
+    with:
+      node-version: "22"
+    # Optional: the list of internal names for the public-names gate of a public repository. A fork pull request receives no secrets; the
+    # workflow derives GATE_FORK_PR from the event so the gate does not fail for a secret that fork can never have. Name it, never `inherit`.
+    secrets:
+      INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}

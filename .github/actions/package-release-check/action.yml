@@ -1,0 +1,50 @@
+name: package-release-check
+description: Gate steps of lego-package-release, with no token and no cloud credentials - input shape and tag equals version (check), and one npm pack with a review of that tarball and its sha256 (pack).
+inputs:
+  command:
+    description: check or pack.
+    required: true
+  package-dir:
+    description: Directory of the package, relative to the repository root.
+    required: false
+    default: "."
+  tag-prefix:
+    description: Prefix of the version tag.
+    required: true
+  node-version:
+    description: Node version (shape check only).
+    required: false
+    default: "22"
+  out-dir:
+    description: Directory the tarball and its .sha256 are written to (pack only). It must be empty or absent.
+    required: false
+    default: ""
+outputs:
+  tarball:
+    description: File name of the tarball (pack).
+    value: ${{ steps.run.outputs.tarball }}
+  sha256:
+    description: sha256 of the tarball (pack).
+    value: ${{ steps.run.outputs.sha256 }}
+  dir:
+    description: Absolute directory that holds the tarball and its .sha256 (pack).
+    value: ${{ steps.run.outputs.dir }}
+runs:
+  using: composite
+  steps:
+    - name: Run the step
+      id: run
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        COMMAND: ${{ inputs.command }}
+        PACKAGE_DIR: ${{ inputs.package-dir }}
+        TAG_PREFIX: ${{ inputs.tag-prefix }}
+        NODE_VERSION: ${{ inputs.node-version }}
+        OUT_DIR: ${{ inputs.out-dir }}
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        case "$COMMAND" in check | pack) ;; *) echo "::error::package-release-check: unknown command '$COMMAND'" >&2; exit 1 ;; esac
+        "$SCRIPTS/tarball-release.sh" "$COMMAND"

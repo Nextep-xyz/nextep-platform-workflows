@@ -1,0 +1,16 @@
+# Fictional caller (package @example/shop-lib in packages/shop-lib of a public repository). The package is distributed as the tarball of a
+# GitHub Release: no registry, no cloud, no token. The caller decides WHEN it runs: the push of a version tag <tag-prefix>X.Y.Z, and its job grants
+# `contents: write` (the release job of the workflow needs it; the gate job asks for read). The barrier is a ruleset of tags in this repository:
+# only maintainers create `shop-lib-v*` and nobody moves or deletes one (docs/runbook.md section 9). Pin the workflow by tag, never @main.
+name: release-shop-lib
+on:
+  push:
+    tags: ["shop-lib-v*"]
+jobs:
+  release-shop-lib:
+    permissions:
+      contents: write
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-package-release.yml@v1
+    with:
+      package-dir: packages/shop-lib
+      tag-prefix: shop-lib-v

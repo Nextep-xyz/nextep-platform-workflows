@@ -1,0 +1,21 @@
+# Contract of .github/workflows/lego-package-release.yml - machine-readable source of truth (gate G12).
+# The job names (`gate`, `release`) are IRREVERSIBLE: they are part of the required-check and ruleset names of every caller.
+# Changing a job name or an input name is a MAJOR version.
+# There is no token input and no secret on purpose (gate CF-SEC): the Release is created with the GITHUB_TOKEN of the run,
+# which only the `release` job holds with contents: write.
+workflow: lego-package-release
+inputs:
+  package-dir:
+    type: string
+    default: "."
+  tag-prefix:
+    type: string
+    required: true
+  node-version:
+    type: string
+    default: "22"
+secrets: {}
+outputs: {}
+jobs:
+  - gate
+  - release

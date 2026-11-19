@@ -1,0 +1,50 @@
+# Reusable workflow: CI of a Node (pnpm) repository. Immutable install, `pnpm test`, `pnpm typecheck`. No cloud, no registry login, no token.
+# Contract: contracts/lego-node-ci.contract.yml (gate G12). The job name (`ci`) is IRREVERSIBLE: it is part of the name of the required
+# status check of every caller (<caller-job-id> / ci).
+# The caller decides WHEN it runs: `pull_request` and `push` (never `pull_request_target`: this runs the code of the pull request).
+# The only secret is the optional INTERNAL_DENYLIST, for the public-names gate of a public repository: it reaches ONLY the env: of the
+# test step, masked line by line (gate CF-SEC). GATE_FORK_PR is derived from the event so the gate does not fail for a secret a fork
+# pull request can never receive. Permissions: contents: read.
+name: lego-node-ci
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node version."
+        type: string
+        default: "22"
+    secrets:
+      INTERNAL_DENYLIST:
+        description: "Optional list of internal names (newline or comma separated) for the public-names gate. It only reaches the env: of the test step."
+        required: false
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the caller repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up the project
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        with:
+          package-manager: pnpm
+          node-version: ${{ inputs.node-version }}
+      - name: Test
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        with:
+          command: test
+        env:
+          INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}
+          # A pull request from a fork has no access to secrets: the gate then runs only its generic detectors. On every other event this is 'false'.
+          GATE_FORK_PR: ${{ github.event.pull_request.head.repo.fork == true && 'true' || 'false' }}
+      - name: Typecheck
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        with:
+          command: typecheck

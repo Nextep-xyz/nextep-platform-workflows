@@ -1,12 +1,76 @@
 #!/usr/bin/env bash
-# Fake gh (no network). Only `gh api ... check-runs ...` is supported: it prints the rows a real call would print after its --jq
-# (tab-separated: name, status, conclusion), read from the fixture files of the sequence:
-#   FAKE_GH_ROWS=<prefix>   the Nth call prints <prefix>.N (the last one repeats when there are fewer files than calls);
-#                           a missing .1 prints nothing (the "no check-runs at all" case).
-#   FAKE_GH_RC=<n>          exit code instead of answering (API failure).
-# Every call is logged to $FAKE_LOG; the token is never logged.
+# Fake gh (no network). Two families of calls are supported.
+#
+# 1. `gh api ... check-runs ...` prints the rows a real call would print after its --jq (tab-separated: name, status, conclusion), read from the
+#    fixture files of the sequence:
+#      FAKE_GH_ROWS=<prefix>   the Nth call prints <prefix>.N (the last one repeats when there are fewer files than calls);
+#                              a missing .1 prints nothing (the "no check-runs at all" case).
+#      FAKE_GH_RC=<n>          exit code instead of answering (API failure).
+# 2. `gh release view|create|download <tag> ...` against a directory that plays the releases of the repository (FAKE_GH_RELEASES):
+#      view      exits 0 when <FAKE_GH_RELEASES>/<tag> exists; otherwise "release not found" and exit 1
+#                (FAKE_GH_VIEW_ERROR=<text> answers that text with exit 1 instead: an outage, a permission error)
+#      create    copies the file arguments into <FAKE_GH_RELEASES>/<tag> (exit 1, "already exists", when it is there: a real gh refuses too);
+#                it refuses --clobber, which this repository never uses
+#      download  copies the --pattern files of the release into --dir; FAKE_GH_TAMPER=1 appends a byte to every .tgz it hands over
+#    The calls need GH_TOKEN in the environment and GH_REPO set (a real gh without them would fail or prompt): "auth=missing" is logged
+#    and the call fails otherwise.
+# Every call is logged to $FAKE_LOG; the token is NEVER logged (only whether it was there).
 echo "gh $*" >>"${FAKE_LOG:-/dev/null}"
 [[ -z ${FAKE_GH_RC:-} ]] || { echo "fake gh: api error" >&2; exit "$FAKE_GH_RC"; }
+
+if [[ $1 == release ]]; then
+  if [[ -z ${GH_TOKEN:-} || -z ${GH_REPO:-} ]]; then
+    echo "auth=missing" >>"${FAKE_LOG:-/dev/null}"
+    echo "fake gh: GH_TOKEN and GH_REPO are required" >&2
+    exit 4
+  fi
+  echo "auth=present repo=$GH_REPO" >>"${FAKE_LOG:-/dev/null}"
+  root="${FAKE_GH_RELEASES:?}"
+  sub=$2
+  tag=$3
+  shift 3
+  case "$sub" in
+    view)
+      if [[ -n ${FAKE_GH_VIEW_ERROR:-} ]]; then echo "$FAKE_GH_VIEW_ERROR" >&2; exit 1; fi
+      [[ -d $root/$tag ]] && exit 0
+      echo "release not found" >&2
+      exit 1
+      ;;
+    create)
+      files=()
+      while (($#)); do
+        case "$1" in
+          --clobber) echo "fake gh: --clobber is not allowed" >&2; exit 5 ;;
+          --title | --notes) shift 2 ;;
+          --*) shift ;;
+          *) files+=("$1"); shift ;;
+        esac
+      done
+      [[ ! -d $root/$tag ]] || { echo "fake gh: a release with this tag already exists" >&2; exit 1; }
+      mkdir -p "$root/$tag"
+      cp "${files[@]}" "$root/$tag/"
+      ;;
+    download)
+      dir="" pats=()
+      while (($#)); do
+        case "$1" in
+          --dir) dir=$2; shift 2 ;;
+          --pattern) pats+=("$2"); shift 2 ;;
+          *) shift ;;
+        esac
+      done
+      [[ -d $root/$tag ]] || { echo "fake gh: release not found" >&2; exit 1; }
+      for p in "${pats[@]}"; do
+        [[ -f $root/$tag/$p ]] || continue
+        cp "$root/$tag/$p" "$dir/$p"
+        if [[ -n ${FAKE_GH_TAMPER:-} && $p == *.tgz ]]; then printf 'x' >>"$dir/$p"; fi
+      done
+      ;;
+    *) echo "fake gh: unsupported release call: $sub" >&2; exit 2 ;;
+  esac
+  exit 0
+fi
+
 [[ $1 == api && $* == *check-runs* ]] || { echo "fake gh: unsupported call: $*" >&2; exit 2; }
 count_file="${FAKE_GH_ROWS:?}.count"
 n=$(($(cat "$count_file" 2>/dev/null || echo 0) + 1))

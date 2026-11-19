@@ -3,7 +3,9 @@
 # `id-token: write` only in the jobs that assume the role (migration, deploy, infra-deploy, post-deploy), in the telemetry job
 # with exact permissions (amendment of SPEC telemetria-dora 3.2), in `publish` of the package family (exact permissions too) and,
 # with the conditions of the v1.5.0 amendment, in the quality-and-security-gate of the deploy family (registry login, read-only role);
-# no `contents: write`.
+# no `contents: write` -- except the `release` job of lego-package-release.yml (amendment of the cloud-free family, SPEC section 0 "Enmienda
+# Paquetes por GitHub Release"), only with exactly {contents: write}; the cloud-free workflows (lego-* that are not lego-aws-*) hold no
+# id-token at all. Discovery is every lego-*.yml: the gate sees a workflow whatever its family.
 
 load 'lib/gates'
 
@@ -20,6 +22,11 @@ load 'lib/gates'
         gate_violation "$wf" "job '$job' does not declare 'permissions:'"
     done < <(jq -r '.jobs | keys[]' <<<"$json")
     while IFS= read -r job; do
+      # Cloud-free family: no role is assumed and no token is minted, so no job may hold id-token at all.
+      if [[ $(basename "$wf") != lego-aws-* ]]; then
+        gate_violation "$wf" "job '$job' has 'id-token: write' but this is a cloud-free workflow (lego-* that is not lego-aws-*): it assumes no role and mints no token"
+        continue
+      fi
       case "$job" in
         database-migration | deploy | infra-deploy | post-deploy) ;;
         # Package family: `publish` assumes the publishing role. Allowed ONLY in lego-aws-package-*.yml and with exactly
@@ -56,9 +63,19 @@ load 'lib/gates'
         *) gate_violation "$wf" "job '$job' has 'id-token: write'; only the migration, deploy, infra-deploy and post-deploy jobs (telemetry-phone-home, publish in a package workflow and the registry-login gate job, with exact permissions) may" ;;
       esac
     done < <(jq -r '.jobs | to_entries[] | select(.value.permissions["id-token"]? == "write") | .key' <<<"$json")
+    # G2 amendment (cloud-free family): the `release` job of lego-package-release.yml is the one job allowed `contents: write`, with exactly that
+    # permission and nothing else. The gate job and every other job stay read-only; CF-REL (cloud-free.bats) fences what the release job runs.
+    release_ok=""
+    if [[ $(basename "$wf") == lego-package-release.yml ]]; then
+      if jq -e '.jobs.release.permissions == {"contents": "write"}' <<<"$json" >/dev/null; then
+        release_ok=release
+      else
+        gate_violation "$wf" "job 'release' may hold contents: write only with exactly {contents: write} (got $(jq -c '.jobs.release.permissions' <<<"$json"))"
+      fi
+    fi
     while IFS= read -r job; do
       gate_violation "$wf" "job '$job' grants write-all/read-all or contents: write"
-    done < <(jq -r '.jobs | to_entries[] | select(.value.permissions == "write-all" or .value.permissions == "read-all" or .value.permissions.contents? == "write") | .key' <<<"$json")
+    done < <(jq -r --arg ok "$release_ok" '.jobs | to_entries[] | select(.key != $ok) | select(.value.permissions == "write-all" or .value.permissions == "read-all" or .value.permissions.contents? == "write") | .key' <<<"$json")
   done
   gate_finish G2
 }
