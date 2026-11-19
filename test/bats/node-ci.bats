@@ -4,6 +4,8 @@
 load 'helpers'
 
 setup() {
+  # The CI job exports both (self-ci.yml, job env): a test about their absence must not inherit them.
+  unset INTERNAL_DENYLIST GATE_FORK_PR
   export PATH="$BATS_TEST_DIRNAME/fakes:$PATH"
   export FAKE_LOG="$BATS_TEST_TMPDIR/calls.log"
   : >"$FAKE_LOG"
