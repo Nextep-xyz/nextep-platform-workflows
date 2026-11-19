@@ -225,7 +225,7 @@ code_lines() { grep -vE '^[[:space:]]*#' "$GATES_ROOT/$1" || true; }
     while IFS= read -r comp; do
       path=".github/actions/$comp/action.yml"
       [[ -f $GATES_ROOT/$path ]] || continue
-      while IFS= read -r script; do scripts["scripts/$script"]=1; done < <(gate_json "$path" | jq -r '[.runs.steps[]? | .run // empty] | .[] | capture("\\$SCRIPTS/(?<s>[A-Za-z0-9._-]+\\.sh)")? | .s')
+      while IFS= read -r script; do scripts["scripts/$script"]=1; done < <(gate_json "$path" | jq -r '[.runs.steps[]? | .run // empty] | .[] | capture("\\$SCRIPTS/(?<s>[A-Za-z0-9._-]+\\.sh)"; "g") | .s')
     done < <(composites_of_job "$json" release)
   done
   for script in "${!scripts[@]}"; do

@@ -1146,3 +1146,25 @@ jobs: []
   rm "$FX/test/sandbox/callers/package-release.yml"
   red cloud-free.bats "lego-package-release.yml: no sandbox caller in test/sandbox/callers uses it"
 }
+
+@test "EXEC red: a script that a composite runs but is not executable, and one that does not exist, are named; no composite at all is '0 subjects'" {
+  run bats "$REPO_ROOT/test/gates/script-modes.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"EXEC: 0 subjects discovered"* ]]
+  mkdir -p "$FX/.github/actions/demo"
+  cat >"$FX/.github/actions/demo/action.yml" <<'YAML'
+name: demo
+description: demo
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        "$SCRIPTS/loose.sh"
+        "$SCRIPTS/missing.sh"
+YAML
+  printf '#!/usr/bin/env bash\n' >"$FX/scripts/loose.sh"
+  chmod 644 "$FX/scripts/loose.sh"
+  red script-modes.bats "scripts/loose.sh: is run by .github/actions/demo/action.yml but is not executable"
+  [[ "$output" == *"runs scripts/missing.sh, which does not exist"* ]]
+}
