@@ -36,13 +36,13 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@c38af2ca406e8a595ad5c7ea7b5f4829cee78a6b
         with:
           package-manager: pnpm
           node-version: ${{ inputs.node-version }}
       - name: Test
         id: test
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@c38af2ca406e8a595ad5c7ea7b5f4829cee78a6b
         with:
           command: test
         env:
@@ -51,13 +51,13 @@ jobs:
           GATE_FORK_PR: ${{ github.event.pull_request.head.repo.fork == true && 'true' || 'false' }}
       - name: Typecheck
         id: typecheck
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@c38af2ca406e8a595ad5c7ea7b5f4829cee78a6b
         with:
           command: typecheck
       # Reporting only: it runs even when the validation failed (always()), reads the REAL outcome of the steps above and never fails the job.
       - name: Packages evidence
         if: ${{ always() && inputs.packages-evidence }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@c38af2ca406e8a595ad5c7ea7b5f4829cee78a6b
         with:
           package-manager: pnpm
           validations: |
