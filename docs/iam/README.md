@@ -6,6 +6,8 @@
 | [`trust-policy.example.json`](trust-policy.example.json) | Trust policy of the role per (project, environment) |
 | [`package-publish-trust-policy.example.json`](package-publish-trust-policy.example.json) | Trust policy of the role that publishes npm packages (`lego-aws-package-publish`): the workflow file by tag and a subject limited to the version tag |
 | [`package-publish-policy.example.json`](package-publish-policy.example.json) | Minimum permissions of that role: mint the registry token, resolve one endpoint, publish and describe the packages of one scope |
+| [`image-publish-trust-policy.example.json`](image-publish-trust-policy.example.json) | Trust policy of the role that publishes an image (`lego-aws-image-publish`): the workflow file at an EXACT release tag and a subject limited to the version tags of one repository |
+| [`image-publish-policy.example.json`](image-publish-policy.example.json) | Minimum permissions of that role: the ECR login token and the push and describe actions on ONE repository. Nothing that deletes, creates or reconfigures |
 | [`registry-read-trust-policy.example.json`](registry-read-trust-policy.example.json) | Trust policy of the READ-ONLY role that the gates and deploys use to install private packages (`registry-role-arn`): `lego-aws-cicd` and `lego-aws-environment-deploy` at a release tag, and one repository |
 | [`registry-read-policy.example.json`](registry-read-policy.example.json) | Minimum permissions of that role: mint the registry token and read one repository. Nothing that writes |
 
@@ -54,3 +56,14 @@ role and **not** the publishing role.
   a caller pins). `sub` is `repo:<org>/<repo>:*`, because the gate also runs on pull requests (`repo:<org>/<repo>:pull_request`) and on branches, so it cannot be narrowed to a tag as the publishing
   role's can. The workflow file is what fences the role; keep the repository variable that holds the role ARN limited to the repositories that need it.
 - Same status as the others: the exact action set and `job_workflow_ref` as an IAM condition are **NOT VERIFIED** (runbook section 7.6).
+
+## The image publishing role (v1.6.0)
+
+- **A separate role** from the deploy, registry-read and package-publishing roles: it can push to **one** ECR repository and nothing else. It is created by the owner of the
+  repository, **outside the pipeline that uses it** (a pipeline cannot create the role it runs with: one deploy by hand, declared as an exception in the owner's repository).
+- **The barrier is two things together**: the trust policy (`job_workflow_ref` = `lego-aws-image-publish.yml` at an EXACT release tag, and a `sub` limited to `refs/tags/<tag-prefix>*` of one
+  repository) and a **tag ruleset** in the consuming repository that lets only maintainers create those tags. A role open to any tag trusts whoever can push one.
+- **The repository** must have `IMMUTABLE` tags and scan on push; that is what makes the digest of a version final. The role cannot change either setting.
+- `ecr:GetAuthorizationToken` is the only action with `Resource: "*"` (ECR has no resource-level scope for it). The set of push actions (`BatchCheckLayerAvailability`, `InitiateLayerUpload`,
+  `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`) plus `DescribeImages` comes from the AWS documentation and is **NOT VERIFIED** against a real repository; a test pins the exact set.
+- Same status as the others for `job_workflow_ref` as an IAM condition (**NOT VERIFIED**, [ADR 0001](../adr/0001-s1-job-workflow-ref-in-iam.md)).

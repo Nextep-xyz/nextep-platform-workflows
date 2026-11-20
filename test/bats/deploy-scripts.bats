@@ -193,3 +193,15 @@ lambda_env() {
   run "$SCRIPTS/build-push-image.sh"
   [ "$status" -eq 1 ]
 }
+
+@test "build-push-image: BUILD_PLATFORM adds --platform and, unset, the docker command is exactly what it always was" {
+  export FAKE_ECR_MISSING=1 AWS_REGION=us-east-2 REGISTRY=reg.example.com ECR_REPOSITORY=shop-api-prod IMAGE_TAG=0123abc ENVIRONMENT=release DOCKERFILE=Dockerfile BUILD_CONTEXT=.
+  run "$SCRIPTS/build-push-image.sh"
+  [ "$status" -eq 0 ]
+  grep -qx 'docker build --file Dockerfile --tag reg.example.com/shop-api-prod:0123abc .' "$FAKE_LOG"
+  : >"$FAKE_LOG"
+  BUILD_PLATFORM=linux/amd64 run "$SCRIPTS/build-push-image.sh"
+  [ "$status" -eq 0 ]
+  grep -qx 'docker build --file Dockerfile --tag reg.example.com/shop-api-prod:0123abc --platform linux/amd64 .' "$FAKE_LOG"
+  ! grep -q ':latest' "$FAKE_LOG"
+}

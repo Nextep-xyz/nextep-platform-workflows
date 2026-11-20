@@ -18,6 +18,7 @@ of a scratch repository in a **dev** account, set the repository variable `AWS_R
 | [`environment-deploy-ecs-no-db.yml`](callers/environment-deploy-ecs-no-db.yml) | `lego-aws-environment-deploy`, `compute: ecs`, `migrate: false` (a service with no database: no tunnel, no migration job; rollback by `image-tag`) |
 | [`cicd-telemetry.yml`](callers/cicd-telemetry.yml) | `lego-aws-cicd` reporting to a DORA collector: `telemetry-url`/`telemetry-audience` from variables, pinned by tag (`@v1`) |
 | [`package-publish.yml`](callers/package-publish.yml) | `lego-aws-package-publish`: push of a version tag, package in a subdirectory, role and CodeArtifact coordinates from variables, no token (v1.4.0) |
+| [`image-publish.yml`](callers/image-publish.yml) | `lego-aws-image-publish`: push of a version tag, one ECR repository, role from a variable, the reusable pinned by an exact tag (v1.6.0; **NOT VERIFIED** until a real run) |
 | [`cicd-registry-login.yml`](callers/cicd-registry-login.yml) | `lego-aws-cicd` installing a private `@scope` package from CodeArtifact through OIDC: the five registry inputs from variables, a read-only role, no token (v1.5.0; **NOT VERIFIED** until a registry with a published package exists) |
 | [`pm-userconfig/`](pm-userconfig/run.sh) | Not a caller: a manual check that npm and pnpm honour the temporary user config of the registry login, against a local fake registry |
 

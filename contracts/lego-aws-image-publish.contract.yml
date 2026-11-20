@@ -1,0 +1,37 @@
+# Contract of .github/workflows/lego-aws-image-publish.yml - machine-readable source of truth (gate G12).
+# The file name and the job name (`publish`) are IRREVERSIBLE: the file name and the tag of this workflow end up in the trust policy of
+# the publishing role (job_workflow_ref). Changing a job name, an input name or an output name is a MAJOR version.
+# There is no secret and no token input on purpose: the role is assumed through OIDC and the ECR login token is minted per run.
+workflow: lego-aws-image-publish
+inputs:
+  project:
+    type: string
+    required: true
+  ecr-repository:
+    type: string
+    required: true
+  role-arn:
+    type: string
+    required: true
+  aws-region:
+    type: string
+    default: "us-east-2"
+  dockerfile:
+    type: string
+    default: "Dockerfile"
+  docker-context:
+    type: string
+    default: "."
+  platform:
+    type: string
+    default: "linux/amd64"
+  tag-prefix:
+    type: string
+    default: "v"
+secrets: {}
+outputs:
+  version: {}
+  image: {}
+  digest: {}
+jobs:
+  - publish

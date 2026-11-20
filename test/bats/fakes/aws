@@ -54,6 +54,12 @@ s.bind(("127.0.0.1", int(sys.argv[1]))); s.listen(5); time.sleep(120)' "${FAKE_P
   "ecr describe-images")
     if [[ -n ${FAKE_ECR_ERROR:-} ]]; then echo "$FAKE_ECR_ERROR" >&2; exit 254; fi
     if [[ -n ${FAKE_ECR_MISSING:-} ]]; then echo "ImageNotFoundException" >&2; exit 254; fi
+    # `--output json` (the digest read of lego-aws-image-publish) gets the JSON shape of the real CLI; any other call keeps the old text.
+    if [[ " $* " == *" --output json "* ]]; then
+      printf '{"imageDetails": [{"repositoryName": "%s", "imageDigest": "%s", "imageTags": ["%s"]}]}
+' "$(arg_after --repository-name)" "${FAKE_ECR_DIGEST-sha256:$(printf 'ab%.0s' {1..32})}" "$(arg_after --image-ids | sed 's/^imageTag=//')"
+      exit 0
+    fi
     echo "tag"
     ;;
   "ecs update-service") echo "shop-service" ;;

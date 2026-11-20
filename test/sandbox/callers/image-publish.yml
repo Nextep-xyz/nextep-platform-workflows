@@ -1,0 +1,23 @@
+# Fictional caller (project "shop", an image published from this repository). The caller decides WHEN it runs: the push of a version tag
+# vX.Y.Z. The tag ruleset of the repository and the trust policy of the publishing role are the barrier (docs/runbook.md section 10, docs/iam/).
+# The workflow exists from v1.6.0: pin it by an EXACT tag so the role's job_workflow_ref matches. The consumer reads `digest` from the run summary
+# (or from the job outputs) and pins `version` + `digest` in its own repository.
+name: release-engine
+on:
+  push:
+    tags: ["v*"]
+permissions: { id-token: write, contents: read }
+jobs:
+  publish-image:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-image-publish.yml@v1.6.0
+    with:
+      project: shop
+      # The ECR repository must exist, with immutable tags. A literal name: the image of this repository, not one per environment.
+      ecr-repository: shop-engine
+      # From a repository variable: this repository is public, and so is the caller's YAML if the project is.
+      role-arn: ${{ vars.AWS_ROLE_ARN_IMAGE_PUBLISH }}
+      aws-region: us-east-2
+      dockerfile: Dockerfile
+      docker-context: .
+      platform: linux/amd64
+      tag-prefix: v

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # G2 — least privilege: no workflow-level permissions, every job declares its own,
 # `id-token: write` only in the jobs that assume the role (migration, deploy, infra-deploy, post-deploy), in the telemetry job
-# with exact permissions (amendment of SPEC telemetria-dora 3.2), in `publish` of the package family (exact permissions too) and,
+# with exact permissions (amendment of SPEC telemetria-dora 3.2), in `publish` of the package and image families (exact permissions too) and,
 # with the conditions of the v1.5.0 amendment, in the quality-and-security-gate of the deploy family (registry login, read-only role);
 # no `contents: write` -- except the `release` job of lego-package-release.yml (amendment of the cloud-free family, SPEC section 0 "Enmienda
 # Paquetes por GitHub Release"), only with exactly {contents: write}; the cloud-free workflows (lego-* that are not lego-aws-*) hold no
@@ -29,11 +29,11 @@ load 'lib/gates'
       fi
       case "$job" in
         database-migration | deploy | infra-deploy | post-deploy) ;;
-        # Package family: `publish` assumes the publishing role. Allowed ONLY in lego-aws-package-*.yml and with exactly
-        # {contents: read, id-token: write} (it needs nothing else: no pull-requests, no writes).
+        # Package and image families: `publish` assumes the publishing role. Allowed ONLY in lego-aws-package-*.yml and lego-aws-image-*.yml and with
+        # exactly {contents: read, id-token: write} (it needs nothing else: no pull-requests, no writes).
         publish)
-          [[ $(basename "$wf") == lego-aws-package-* ]] ||
-            gate_violation "$wf" "job 'publish' has 'id-token: write' but this is not a package workflow (lego-aws-package-*.yml)"
+          [[ $(basename "$wf") == lego-aws-package-* || $(basename "$wf") == lego-aws-image-* ]] ||
+            gate_violation "$wf" "job 'publish' has 'id-token: write' but this is not a package workflow (lego-aws-package-*.yml) nor an image workflow (lego-aws-image-*.yml)"
           jq -e '.jobs["publish"].permissions == {"contents": "read", "id-token": "write"}' <<<"$json" >/dev/null ||
             gate_violation "$wf" "job 'publish' may hold id-token: write only with exactly {contents: read, id-token: write} (got $(jq -c '.jobs["publish"].permissions' <<<"$json"))"
           ;;
@@ -43,7 +43,7 @@ load 'lib/gates'
         # deploy role or deploys; and every setup-project step takes registry-role-arn from the workflow input (the permission exists
         # for that login and for nothing else). The trust policy of that role (repository + job_workflow_ref) is checked in iam-docs.bats.
         quality-and-security-gate)
-          if [[ $(basename "$wf") == lego-aws-package-* ]]; then
+          if [[ $(basename "$wf") == lego-aws-package-* || $(basename "$wf") == lego-aws-image-* ]]; then
             gate_violation "$wf" "job 'quality-and-security-gate' has 'id-token: write' but the gate of a package workflow holds no cloud credentials (GR-F1)"
             continue
           fi

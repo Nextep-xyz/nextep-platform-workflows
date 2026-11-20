@@ -1,0 +1,46 @@
+name: image-publish
+description: Steps of lego-aws-image-publish - validate the inputs and the version tag (no cloud credentials), build and push the image as <X.Y.Z> (the version tag only), and read its digest from ECR.
+inputs:
+  command:
+    description: validate, build or digest.
+    required: true
+  inputs-json:
+    description: toJSON(inputs) of the calling workflow (it has no secret inputs).
+    required: true
+  version:
+    description: Version read by `validate` (output `version`). Needed by build and digest.
+    required: false
+    default: ""
+  registry:
+    description: ECR registry host (output `registry` of the ECR login step). Needed by build and digest.
+    required: false
+    default: ""
+outputs:
+  version:
+    description: The version taken from the tag (validate) or confirmed (digest).
+    value: ${{ steps.run.outputs.version }}
+  image:
+    description: registry/repository:version (digest).
+    value: ${{ steps.run.outputs.image }}
+  digest:
+    description: sha256 digest of the image, read from ECR (digest).
+    value: ${{ steps.run.outputs.digest }}
+runs:
+  using: composite
+  steps:
+    - name: Run the step
+      id: run
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        COMMAND: ${{ inputs.command }}
+        INPUTS_JSON: ${{ inputs.inputs-json }}
+        VERSION: ${{ inputs.version }}
+        REGISTRY: ${{ inputs.registry }}
+        EVENT_NAME: ${{ github.event_name }}
+        REF_TYPE: ${{ github.ref_type }}
+        REF_NAME: ${{ github.ref_name }}
+      run: |
+        set -euo pipefail
+        case "$COMMAND" in validate | build | digest) ;; *) echo "::error::image-publish: unknown command '$COMMAND'" >&2; exit 1 ;; esac
+        "$SCRIPTS/image-publish.sh" "$COMMAND"

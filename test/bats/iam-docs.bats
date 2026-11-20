@@ -70,3 +70,29 @@ load 'helpers'
   # the role can publish and describe; it cannot delete, copy or dispose of versions
   ! jq -e '.Statement[] | select([.Action] | flatten | any(test("Delete|Dispose|Copy|UpdatePackageVersionsStatus|Associate|Create")))' "$f" >/dev/null
 }
+
+# ---- image publishing role (lego-aws-image-publish) -----------------------------------------------------------------------
+
+@test "the image publishing trust policy pins the workflow file at an exact tag and a tag-scoped subject, never a branch or a bare wildcard" {
+  local f="$REPO_ROOT/docs/iam/image-publish-trust-policy.example.json"
+  jq -e . "$f" >/dev/null
+  jq -e '.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:aud"] == "sts.amazonaws.com"' "$f" >/dev/null
+  jq -e '.Statement[0].Condition.StringEquals["token.actions.githubusercontent.com:job_workflow_ref"] | (type == "array" or type == "string") and ([.] | flatten | all(test("/\\.github/workflows/lego-aws-image-publish\\.yml@refs/tags/v[0-9]+\\.[0-9]+\\.[0-9]+$")))' "$f" >/dev/null
+  jq -e '.Statement[0].Condition.StringLike["token.actions.githubusercontent.com:sub"] | test("^repo:[^*]+:ref:refs/tags/[A-Za-z0-9._-]+\\*$")' "$f" >/dev/null
+  ! jq -e '.Statement[0].Condition | .. | strings | select(test("refs/heads/"))' "$f" >/dev/null
+  # it is not the role of a package or a deploy workflow
+  ! jq -e '.Statement[0].Condition | .. | strings | select(test("lego-aws-(package-|cicd|environment-deploy)"))' "$f" >/dev/null
+}
+
+@test "the image publishing policy allows exactly the push actions, scopes them to one repository and cannot delete, create or reconfigure anything" {
+  local f="$REPO_ROOT/docs/iam/image-publish-policy.example.json"
+  jq -e . "$f" >/dev/null
+  # the whole set, nothing else: a new action in the example is a decision a test has to know about
+  [ "$(jq -c '[.Statement[] | .Action] | flatten | sort' "$f")" = '["ecr:BatchCheckLayerAvailability","ecr:CompleteLayerUpload","ecr:DescribeImages","ecr:GetAuthorizationToken","ecr:InitiateLayerUpload","ecr:PutImage","ecr:UploadLayerPart"]' ]
+  ! jq -e '.Statement[] | select([.Action] | flatten | any(. == "*" or test(":\\*$")))' "$f" >/dev/null
+  ! jq -e '.Statement[] | select([.Action] | flatten | any(test("Delete|Create|SetRepositoryPolicy|PutLifecycle|PutImageTagMutability|PutRegistry|Replication|BatchGetImage|GetDownloadUrlForLayer")))' "$f" >/dev/null
+  jq -e '[.Statement[] | select(.Effect != "Allow")] | length == 0' "$f" >/dev/null
+  # only GetAuthorizationToken may use Resource "*" (ECR has no resource-level scope for it); every other action names ONE repository
+  jq -e '[.Statement[] | select([.Action] | flatten | any(. == "ecr:GetAuthorizationToken") | not) | .Resource] | flatten | all(test("^arn:aws:ecr:<REGION>:<ACCOUNT>:repository/<REPOSITORY>$"))' "$f" >/dev/null
+  jq -e '[.Statement[] | select([.Action] | flatten | any(. == "ecr:GetAuthorizationToken")) | .Action] | flatten == ["ecr:GetAuthorizationToken"]' "$f" >/dev/null
+}

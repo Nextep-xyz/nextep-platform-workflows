@@ -409,3 +409,44 @@ Written from the documentation and verified with `gh`, `npm` and `pnpm` fakes an
 - The wording `release not found` of `gh release view` across `gh` versions (the script refuses to continue on anything else), and `gh release create --verify-tag` with `GITHUB_TOKEN`.
 - That `contents: write` alone is enough for `gh release view/create/download` on the repository.
 - A caller that passes `INTERNAL_DENYLIST` empty (the secret does not exist) and a fork pull request end to end.
+
+## 10. Publishing an image by tag (`lego-aws-image-publish`, since v1.6.0)
+
+For a repository that **distributes an image**: the consumer pins the exact version and the digest. `docs/specs/imagen-por-tag/SPEC.md` is the design.
+
+### 10.1 What it does
+
+One job, `publish`, on the push of a tag `<tag-prefix>X.Y.Z` (default prefix `v`):
+
+1. checks out the repository and **validates** the inputs and the tag (no credentials yet): event `push` of a tag, tag `<prefix>X.Y.Z`, relative `dockerfile`/`docker-context` that exist, a `platform` of `linux/amd64` or `linux/arm64`, a role ARN that looks like one;
+2. assumes the publishing role through OIDC and logs in to ECR;
+3. builds with `scripts/build-push-image.sh` and pushes `<registry>/<ecr-repository>:X.Y.Z`. **Never `latest`.** If that tag already exists in ECR nothing is rebuilt (tags are immutable): the run goes on with the existing image, so a re-run after a partial failure is safe;
+4. reads the **digest** with `aws ecr describe-images --output json`, validates it (`sha256:` + 64 hex) and writes `version`, `image` and `digest` to the job outputs and to the run summary, ready to paste into the consumer.
+
+### 10.2 The caller and the barrier
+
+The caller is a few lines (`test/sandbox/callers/image-publish.yml`): `on.push.tags`, `permissions: { id-token: write, contents: read }`, the reusable **pinned by an exact tag** (`@v1.6.0`: the role's `job_workflow_ref` names it) and `role-arn: ${{ vars.<NAME> }}`. What the workflow cannot decide:
+
+1. **A ruleset of tags** in the consuming repository: only maintainers create `<tag-prefix>*`; nobody moves or deletes one.
+2. **The role** (`docs/iam/image-publish-*.example.json`), created by hand **once**, outside this pipeline. Its trust policy pins the workflow file at the exact tag and the repository's version tags.
+3. **The ECR repository** with `IMMUTABLE` tags and scan on push. This workflow does not create it and cannot change it.
+
+### 10.3 What the consumer does with the result
+
+It pins `version` and `digest` in a versioned file of its own repository (a pull request that changes it is how it upgrades) and deploys through its own pipeline. This workflow deploys nothing and does not trigger anyone.
+
+### 10.4 Reading a failure
+
+| Message (fragment) | Meaning | Action |
+|---|---|---|
+| `runs only on the push of a version tag` | The run was not a tag push | Push the tag; a branch, a pull request or a manual run is not a release |
+| `tag '…' is not <tag-prefix><X.Y.Z>` / `does not start with the tag-prefix` | The tag does not have the shape or the prefix | Use `vX.Y.Z` (or the configured prefix); a leading zero or a suffix is refused |
+| `input 'role-arn' is not the ARN of an IAM role` | The role ARN is a literal or the variable is empty | Pass `${{ vars.<NAME> }}`; the value is never printed |
+| `dockerfile '…' does not exist in the checkout` | A typo in the path | Fix the input; nothing was assumed yet |
+| `cannot check whether '…' exists in ECR` | ECR answered something other than "not found" (permissions, outage) | Check the role policy; nothing was built |
+| `ECR returned no valid digest` | `describe-images` returned no digest for the tag | Re-run; if it persists, the push did not complete |
+| `AccessDenied` on the role | The trust policy does not match the workflow tag, the repository or the tag | Compare `job_workflow_ref` and `sub` with the example |
+
+### 10.5 NOT VERIFIED
+
+Written from the documentation and verified with `aws` and `docker` fakes and the gates. **Not run against a real account:** the exact ECR action set of the role, `job_workflow_ref` as an IAM condition (ADR 0001), `aws-actions/amazon-ecr-login` followed by `docker build`/`push` on `ubuntu-latest` with this workflow, `--platform` with the classic builder, and the content of the run summary.

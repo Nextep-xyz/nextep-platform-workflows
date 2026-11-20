@@ -46,9 +46,9 @@ JOB=telemetry-phone-home
 
 @test "G17: each contract matches the activation (inputs, no secret, the job listed, no marker)" {
   gate_require_tools yq jq
-  # The DEPLOY family, by name (the same carve-out as gate_discover_deploy_workflows): the cloud-free contracts (lego-node-ci, lego-package-release)
+  # The DEPLOY family, by name (the same carve-out as gate_discover_deploy_workflows; the package and image families are carved out too): the cloud-free contracts (lego-node-ci, lego-package-release)
   # have no telemetry and are fenced by test/gates/cloud-free.bats, which also decides what secret they may declare.
-  gate_discover G17 contracts -maxdepth 1 -type f -name 'lego-aws-*.contract.yml' -not -name 'lego-aws-package-*.contract.yml'
+  gate_discover G17 contracts -maxdepth 1 -type f -name 'lego-aws-*.contract.yml' -not -name 'lego-aws-package-*.contract.yml' -not -name 'lego-aws-image-*.contract.yml'
   local c json
   for c in "${GATE_SUBJECTS[@]}"; do
     json="$(gate_json "$c")"

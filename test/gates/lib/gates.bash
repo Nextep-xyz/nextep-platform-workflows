@@ -112,11 +112,17 @@ gate_discover_cloudfree_workflows() {
 }
 
 # The workflows of the deploy family (lego-aws-cicd, lego-aws-environment-deploy, and whatever else is named lego-aws-* but is not a
-# package workflow): they carry telemetry, parity tags, stamps and the deploy-lock. Gates about those rules use this discovery.
+# package or an image workflow): they carry telemetry, parity tags, stamps and the deploy-lock. Gates about those rules use this discovery.
 # The exclusion is by name and in this direction on purpose: a new lego-aws-* workflow is a deploy workflow, subject to the
-# stricter rules, until someone declares its family by naming it lego-aws-package-*.
+# stricter rules, until someone declares its family by naming it lego-aws-package-* or lego-aws-image-*.
 gate_discover_deploy_workflows() {
-  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-*.yml' -not -name 'lego-aws-package-*.yml'
+  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-*.yml' -not -name 'lego-aws-package-*.yml' -not -name 'lego-aws-image-*.yml'
+}
+
+# The workflows of the image family (lego-aws-image-*): no environment, no database, no telemetry, an OIDC publishing role that can push to ONE
+# ECR repository. They publish an image on the push of a version tag and deploy nothing.
+gate_discover_image_workflows() {
+  gate_discover "$1" .github/workflows -maxdepth 1 -type f -name 'lego-aws-image-*.yml'
 }
 
 # The workflows of the package family (lego-aws-package-*): no environment, no database, no telemetry, an OIDC publishing role.

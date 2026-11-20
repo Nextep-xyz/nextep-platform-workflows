@@ -681,7 +681,7 @@ archivos, y **fallan si descubren 0 sujetos**. Corren en `self-ci.yml`, que es *
 | # | Guard | Test |
 |---|---|---|
 | G1 | El rol cloud solo se asume desde nuestros workflows (`job_workflow_ref`) | `docs/iam/` con trust policy de referencia + test bats que la valida con fixtures; **negativo en sandbox (S3):** un workflow propio asumiendo el rol recibe `AccessDenied` |
-| G2 | Permisos mínimos por job: todo job declara `permissions:`; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `deploy`, `infra-deploy`, `post-deploy`) y en `telemetry-phone-home` con permisos exactos `{contents: read, id-token: write}` (enmienda de Telemetría) En la familia de paquetes (`lego-aws-package-*`), `publish` lo tiene con permisos exactos `{contents: read, id-token: write}`. Enmienda del login del registry (v1.5.0): también `quality-and-security-gate` de la familia de deploy, con permisos exactos, sin pasos que asuman un rol de deploy y con `registry-role-arn` en cada `setup-project`. Enmienda de la familia sin nube (Paquetes por GitHub Release): `contents: write` solo en el job `release` de `lego-package-release`, con permisos exactos `{contents: write}`; ahí ningún job lleva `id-token`. | `test/gates/permissions.bats`: recorre `.github/workflows/lego-*.yml` |
+| G2 | Permisos mínimos por job: todo job declara `permissions:`; `id-token: write` solo en los jobs que asumen el rol (`database-migration`, `deploy`, `infra-deploy`, `post-deploy`) y en `telemetry-phone-home` con permisos exactos `{contents: read, id-token: write}` (enmienda de Telemetría) En las familias de paquetes (`lego-aws-package-*`) y de imágenes (`lego-aws-image-*`), `publish` lo tiene con permisos exactos `{contents: read, id-token: write}`. Enmienda del login del registry (v1.5.0): también `quality-and-security-gate` de la familia de deploy, con permisos exactos, sin pasos que asuman un rol de deploy y con `registry-role-arn` en cada `setup-project`. Enmienda de la familia sin nube (Paquetes por GitHub Release): `contents: write` solo en el job `release` de `lego-package-release`, con permisos exactos `{contents: write}`; ahí ningún job lleva `id-token`. | `test/gates/permissions.bats`: recorre `.github/workflows/lego-*.yml` |
 | G3 | Toda `uses:` de terceros fijada por **SHA** (no tag) | `test/gates/pinned-actions.bats` sobre `.github/**` |
 | G4 | Los secretos no aparecen en logs: `add-mask` antes del primer uso | bats con `aws` falso: la salida capturada no contiene la contraseña |
 | G5 | Ningún `${{ inputs.* }}` ni `${{ github.event.* }}` dentro de `run:` | `test/gates/no-interpolation-in-run.bats` (parsea YAML con `yq`) |
@@ -884,6 +884,7 @@ ubicación del colector (es un input), orden de implementación de `deploy-mode`
 | Release automático (`release.yml` calcula la versión) | **Hecho** (local, rama `feat/release-automatico`, sin push): `scripts/next-version.sh`, guard de CI verde, `dry_run`, verificación de tags, gates RA5/RA7/RA9/RA10 y T10 reforzado, runbook §8. **Pendiente:** PR a `main` y la primera corrida real (`dry_run`, luego la real); hasta entonces la forma nueva de `release.yml` no se ha ejecutado en GitHub |
 | Paquetes por GitHub Release (`lego-node-ci`, `lego-package-release`) | **Hecha** (local, rama `feat/ci-y-release-de-paquetes-por-github-release`, desde `main`): contratos, workflows, composites, `scripts/node-ci.sh` y `scripts/tarball-release.sh`, gates `CF-*`, G2/G12/G17/T13 enmendados, runbook §9. **Pendiente:** PR, release con `release.yml`, primer run real en un repo de paquetes (lista en `docs/runbook.md` §9.5) |
 | Login del registry (v1.5.0) | **Hecha y lista, sin liberar** (local, rama `feat/login-codeartifact-en-ci`, desde la de paquetes). **Pendiente:** release v1.5.0 cuando el registry y el paquete publicado existan (R3); run real en `dev` |
+| Imagen por tag (`lego-aws-image-publish`, v1.6.0) | **Hecha, sin liberar** (local, rama `feat/reusable-de-publicacion-de-imagen`, sin commit): workflow, contrato, composite `image-publish`, `scripts/image-publish.sh`, familia de gates `lego-aws-image-*` (GI-F1..F4, G2 ampliado), ejemplos IAM con su test, sandbox, runbook §10. **Pendiente:** release v1.6.0 con `release.yml`; run real en una cuenta de pruebas |
 
 ### Estado del login del registry (2026-11-18)
 
@@ -936,4 +937,19 @@ de SPEC.md §11 respetando "Toca / No toca". No modifiques repos de proyecto: se
 bueno. No avances si la fase anterior está en rojo ni crees un tag de release a mano. Si la realidad contradice el
 spec, detente y actualiza el spec primero. Al cerrar, actualiza §14 con hecho, pendiente y un nuevo prompt para
 retomar. Una fase = un commit con el formato del §11.
+```
+
+### Estado de imágenes (2026-11-20)
+
+**Hecho:** `lego-aws-image-publish` (contrato, workflow de un solo job `publish`, composite `image-publish`, `scripts/image-publish.sh` con `validate`/`build`/`digest`), `BUILD_PLATFORM` opcional y retrocompatible en `scripts/build-push-image.sh`, la familia de gates `lego-aws-image-*` (`gate_discover_image_workflows`; excluida por nombre de la de deploy, G17 incluido), G2 ampliado, `test/gates/image-publish-flow.bats` (GI-F1..F4), `test/bats/image-publish.bats`, `test/bats/gates-red-image.bats`, ejemplos IAM con su test, caller de sandbox y runbook §10. Spec: `docs/specs/imagen-por-tag/SPEC.md`.
+**NO VERIFICADO:** el conjunto exacto de acciones de ECR del rol, `job_workflow_ref` como condición de IAM (ADR 0001), `amazon-ecr-login` + `docker build`/`push` con `--platform` en `ubuntu-latest` con este workflow, y el contenido real del resumen del run. Detalle en `docs/runbook.md` §10.5.
+**Pendiente:** cortar v1.6.0 (solo con `release.yml`, nunca a mano; empezar por `dry_run`); un run real en una cuenta de pruebas.
+
+**Prompt para retomar (imágenes):**
+
+```text
+Lee AGENTS.md, docs/specs/imagen-por-tag/SPEC.md y docs/runbook.md §10 de nextep-platform-workflows. La rama feat/reusable-de-publicacion-de-imagen está lista y sin
+liberar. Intégrala en main por PR y libera v1.6.0 con release.yml (empieza por dry_run; nunca crees ni muevas un tag a mano). Con un repo ECR de pruebas (tags inmutables) y un
+rol creado a mano, corre test/sandbox/callers/image-publish.yml desde un repo de prueba, resuelve cada punto de docs/runbook.md §10.5 con la salida real y muévelo a verificado.
+Si la realidad contradice el spec, detente y actualiza el spec primero. No nombres proyectos ni cuentas internas: el repo es público.
 ```

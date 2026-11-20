@@ -63,6 +63,7 @@ flowchart LR
 |---|---|---|
 | `lego-aws-cicd` | Implementado (P1) | Flujo rápido: gate → migración (si hay pendientes, túnel SSM) → deploy. `compute: lambda \| ecs` |
 | `lego-aws-environment-deploy` | Implementado (P1) | Ambiente completo: gate → infra (sin el stack del rol OIDC) → migraciones → verificación → seed; rollback por `image-tag` |
+| `lego-aws-image-publish` | Implementado (sin liberar) | Una imagen de un repo que la distribuye: por el push de un tag `vX.Y.Z` la construye, la sube a ECR como `X.Y.Z` (nunca `latest`) y emite su **digest**. Sin BD, sin deploy, sin telemetría. `docs/runbook.md` §10 |
 | `lego-node-ci` | Implementado (sin liberar) | CI de un repo Node/pnpm: instalación inmutable, `pnpm test`, `pnpm typecheck`. Sin nube. `docs/runbook.md` §9 |
 | `lego-package-release` | Implementado (sin liberar) | Un paquete npm como tarball de un GitHub Release (sin registry): gate (tag == versión, tests, un `npm pack` revisado, sha256) → release (crea y verifica; nunca reescribe). Sin nube. `docs/runbook.md` §9 |
 | `lego-azure-satellite` | Diseño | Satélites Core–Satélite en Azure. Fuera de P1 |
@@ -114,7 +115,7 @@ nextep-platform-workflows/
 ├── README.md   ← la idea (este archivo)
 ├── SPEC.md     ← contratos, secuencia de jobs, plan por fases
 ├── AGENTS.md   ← reglas para agentes (CLAUDE.md lo importa)
-├── .github/workflows/  lego-aws-cicd, lego-aws-environment-deploy, self-ci
+├── .github/workflows/  lego-aws-cicd, lego-aws-environment-deploy, lego-aws-image-publish, self-ci
 ├── .github/actions/    composites internos (aws-oidc, ssm-tunnel, migrate, infra-deploy, ...)
 ├── scripts/            lógica en bash, con tests
 ├── contracts/          contratos máquina-legibles de cada workflow
