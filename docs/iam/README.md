@@ -65,5 +65,5 @@ role and **not** the publishing role.
   repository) and a **tag ruleset** in the consuming repository that lets only maintainers create those tags. A role open to any tag trusts whoever can push one.
 - **The repository** must have `IMMUTABLE` tags and scan on push; that is what makes the digest of a version final. The role cannot change either setting.
 - `ecr:GetAuthorizationToken` is the only action with `Resource: "*"` (ECR has no resource-level scope for it). The set of push actions (`BatchCheckLayerAvailability`, `InitiateLayerUpload`,
-  `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`) plus `DescribeImages` comes from the AWS documentation and is **NOT VERIFIED** against a real repository; a test pins the exact set.
+  `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`) plus `DescribeImages` and `BatchGetImage` is pinned by a test. **`BatchGetImage` is required** and was found by a first real run: `docker push` (buildx) issues a `HEAD` on the manifest by digest after uploading the layers, and without it the push ends in `403 Forbidden`. The rest of the set still comes from the AWS documentation and is **NOT VERIFIED** beyond that run.
 - Same status as the others for `job_workflow_ref` as an IAM condition (**NOT VERIFIED**, [ADR 0001](../adr/0001-s1-job-workflow-ref-in-iam.md)).

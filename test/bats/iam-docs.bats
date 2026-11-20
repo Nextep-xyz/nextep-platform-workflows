@@ -88,9 +88,9 @@ load 'helpers'
   local f="$REPO_ROOT/docs/iam/image-publish-policy.example.json"
   jq -e . "$f" >/dev/null
   # the whole set, nothing else: a new action in the example is a decision a test has to know about
-  [ "$(jq -c '[.Statement[] | .Action] | flatten | sort' "$f")" = '["ecr:BatchCheckLayerAvailability","ecr:CompleteLayerUpload","ecr:DescribeImages","ecr:GetAuthorizationToken","ecr:InitiateLayerUpload","ecr:PutImage","ecr:UploadLayerPart"]' ]
+  [ "$(jq -c '[.Statement[] | .Action] | flatten | sort' "$f")" = '["ecr:BatchCheckLayerAvailability","ecr:BatchGetImage","ecr:CompleteLayerUpload","ecr:DescribeImages","ecr:GetAuthorizationToken","ecr:InitiateLayerUpload","ecr:PutImage","ecr:UploadLayerPart"]' ]
   ! jq -e '.Statement[] | select([.Action] | flatten | any(. == "*" or test(":\\*$")))' "$f" >/dev/null
-  ! jq -e '.Statement[] | select([.Action] | flatten | any(test("Delete|Create|SetRepositoryPolicy|PutLifecycle|PutImageTagMutability|PutRegistry|Replication|BatchGetImage|GetDownloadUrlForLayer")))' "$f" >/dev/null
+  ! jq -e '.Statement[] | select([.Action] | flatten | any(test("Delete|Create|SetRepositoryPolicy|PutLifecycle|PutImageTagMutability|PutRegistry|Replication|GetDownloadUrlForLayer")))' "$f" >/dev/null
   jq -e '[.Statement[] | select(.Effect != "Allow")] | length == 0' "$f" >/dev/null
   # only GetAuthorizationToken may use Resource "*" (ECR has no resource-level scope for it); every other action names ONE repository
   jq -e '[.Statement[] | select([.Action] | flatten | any(. == "ecr:GetAuthorizationToken") | not) | .Resource] | flatten | all(test("^arn:aws:ecr:<REGION>:<ACCOUNT>:repository/<REPOSITORY>$"))' "$f" >/dev/null
