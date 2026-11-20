@@ -32,12 +32,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@45eea8fc5baf88e77e306cc12ae84be3bc29faf4
         with:
           package-manager: pnpm
           node-version: ${{ inputs.node-version }}
       - name: Test
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@45eea8fc5baf88e77e306cc12ae84be3bc29faf4
         with:
           command: test
         env:
@@ -45,6 +45,6 @@ jobs:
           # A pull request from a fork has no access to secrets: the gate then runs only its generic detectors. On every other event this is 'false'.
           GATE_FORK_PR: ${{ github.event.pull_request.head.repo.fork == true && 'true' || 'false' }}
       - name: Typecheck
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@45eea8fc5baf88e77e306cc12ae84be3bc29faf4
         with:
           command: typecheck
