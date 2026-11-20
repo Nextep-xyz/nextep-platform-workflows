@@ -49,19 +49,19 @@ jobs:
           persist-credentials: false
       # The tag and the manifest agree before anything is installed.
       - name: Check the inputs and the tag against package.json
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-check@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: check
           package-dir: ${{ inputs.package-dir }}
           tag-prefix: ${{ inputs.tag-prefix }}
           node-version: ${{ inputs.node-version }}
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           package-manager: pnpm
           node-version: ${{ inputs.node-version }}
       - name: Test
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: test
         env:
@@ -69,7 +69,7 @@ jobs:
       # The one and only `npm pack` of the run. What it produces is what the release job publishes.
       - name: Pack and review the tarball
         id: pack
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-check@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-check@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: pack
           package-dir: ${{ inputs.package-dir }}
@@ -104,7 +104,7 @@ jobs:
           name: package-release
           path: ${{ runner.temp }}/package-release
       - name: Create the Release
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-publish@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-publish@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: create
           assets-dir: ${{ runner.temp }}/package-release
@@ -112,7 +112,7 @@ jobs:
           sha256: ${{ needs.gate.outputs.sha256 }}
           tag-prefix: ${{ inputs.tag-prefix }}
       - name: Verify the published Release
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-publish@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-release-publish@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: verify
           assets-dir: ${{ runner.temp }}/package-release

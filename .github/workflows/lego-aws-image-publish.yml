@@ -81,12 +81,12 @@ jobs:
       # Everything the build reads is checked BEFORE the role is assumed: a wrong tag, a typo in the Dockerfile path or a literal role fails here.
       - name: Validate the inputs and the version tag
         id: validate
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/image-publish@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/image-publish@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: validate
           inputs-json: ${{ toJSON(inputs) }}
       - name: Assume the publishing role
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
@@ -95,7 +95,7 @@ jobs:
         uses: aws-actions/amazon-ecr-login@03f1aad4c6c7ffd436567f42f9384779290529bd # v2.1.7
       # The caller's code enters only through its Dockerfile. `docker build` does not inherit the environment of the runner.
       - name: Build and push the image
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/image-publish@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/image-publish@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: build
           inputs-json: ${{ toJSON(inputs) }}
@@ -103,7 +103,7 @@ jobs:
           registry: ${{ steps.ecr.outputs.registry }}
       - name: Read the digest and write the summary
         id: digest
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/image-publish@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/image-publish@92499cb80852fc1481eb06c8644b988e820540a2
         with:
           command: digest
           inputs-json: ${{ toJSON(inputs) }}
