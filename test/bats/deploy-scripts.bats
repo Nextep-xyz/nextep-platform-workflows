@@ -158,7 +158,7 @@ lambda_env() {
 }
 
 @test "build-push-image: plain docker build with the target and an immutable tag; latest only in dev" {
-  export REGISTRY=reg.example.com ECR_REPOSITORY=shop-api-dev IMAGE_TAG=0123abc ENVIRONMENT=dev DOCKERFILE=apps/api/Dockerfile BUILD_CONTEXT=. BUILD_TARGET=runner
+  export FAKE_ECR_MISSING=1 AWS_REGION=us-east-2 REGISTRY=reg.example.com ECR_REPOSITORY=shop-api-dev IMAGE_TAG=0123abc ENVIRONMENT=dev DOCKERFILE=apps/api/Dockerfile BUILD_CONTEXT=. BUILD_TARGET=runner
   run "$SCRIPTS/build-push-image.sh"
   [ "$status" -eq 0 ]
   grep -q 'docker build --file apps/api/Dockerfile --tag reg.example.com/shop-api-dev:0123abc --target runner --tag reg.example.com/shop-api-dev:latest .' "$FAKE_LOG"
@@ -171,8 +171,25 @@ lambda_env() {
   grep -q 'docker push reg.example.com/shop-api-prod:0123abc' "$FAKE_LOG"
 }
 
+@test "build-push-image: a tag already in ECR is not rebuilt nor pushed (re-run, or base then full on one commit)" {
+  export AWS_REGION=us-east-2 REGISTRY=reg.example.com ECR_REPOSITORY=shop-api-dev IMAGE_TAG=0123abc ENVIRONMENT=dev DOCKERFILE=Dockerfile BUILD_CONTEXT=.
+  run "$SCRIPTS/build-push-image.sh"
+  [ "$status" -eq 0 ]
+  [[ $output == *"already exists in ECR"* ]]
+  grep -q 'aws ecr describe-images --region us-east-2 --repository-name shop-api-dev --image-ids imageTag=0123abc' "$FAKE_LOG"
+  ! grep -q '^docker ' "$FAKE_LOG"
+}
+
+@test "build-push-image: an ECR error other than ImageNotFound is not read as 'not pushed yet'" {
+  export AWS_REGION=us-east-2 REGISTRY=r ECR_REPOSITORY=x IMAGE_TAG=0123abc ENVIRONMENT=dev DOCKERFILE=Dockerfile BUILD_CONTEXT=.
+  export FAKE_ECR_ERROR=AccessDeniedException
+  run "$SCRIPTS/build-push-image.sh"
+  [ "$status" -eq 1 ]
+  ! grep -q '^docker ' "$FAKE_LOG"
+}
+
 @test "build-push-image: an invalid tag is refused" {
-  export REGISTRY=r ECR_REPOSITORY=x IMAGE_TAG='bad tag' ENVIRONMENT=dev DOCKERFILE=Dockerfile BUILD_CONTEXT=.
+  export AWS_REGION=us-east-2 REGISTRY=r ECR_REPOSITORY=x IMAGE_TAG='bad tag' ENVIRONMENT=dev DOCKERFILE=Dockerfile BUILD_CONTEXT=.
   run "$SCRIPTS/build-push-image.sh"
   [ "$status" -eq 1 ]
 }

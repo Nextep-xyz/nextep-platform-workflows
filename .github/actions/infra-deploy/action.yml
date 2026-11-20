@@ -153,6 +153,7 @@ runs:
       shell: bash
       env:
         SCRIPTS: ${{ github.action_path }}/../../../scripts
+        AWS_REGION: ${{ inputs.aws-region }}
         REGISTRY: ${{ steps.ecr.outputs.registry }}
         ECR_REPOSITORY: ${{ steps.ctx.outputs.repository }}
         IMAGE_TAG: ${{ github.sha }}
