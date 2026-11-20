@@ -1,8 +1,11 @@
 # Contract of .github/workflows/lego-package-release.yml - machine-readable source of truth (gate G12).
 # The job names (`gate`, `release`) are IRREVERSIBLE: they are part of the required-check and ruleset names of every caller.
 # Changing a job name or an input name is a MAJOR version.
-# There is no token input and no secret on purpose (gate CF-SEC): the Release is created with the GITHUB_TOKEN of the run,
-# which only the `release` job holds with contents: write.
+# There is no token input on purpose (gate CF-SEC): the Release is created with the GITHUB_TOKEN of the run, which only the `release` job
+# holds with contents: write.
+# The ONLY secret is the optional INTERNAL_DENYLIST (the public-names gate of a public repository), the same one lego-node-ci takes. The
+# `gate` job runs the tests of the package, and those tests include that gate: without the secret it fails closed. Gate CF-SEC fences it: no
+# other secret, never required, only as an env: of the test step.
 workflow: lego-package-release
 inputs:
   package-dir:
@@ -14,7 +17,9 @@ inputs:
   node-version:
     type: string
     default: "22"
-secrets: {}
+secrets:
+  INTERNAL_DENYLIST:
+    required: false
 outputs: {}
 jobs:
   - gate

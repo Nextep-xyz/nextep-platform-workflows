@@ -2,7 +2,7 @@
 # Gates of the cloud-free family: the reusable workflows named lego-* that are not lego-aws-* (lego-node-ci, lego-package-release). They assume
 # no role and mint no token; the one write permission of the family belongs to the `release` job of lego-package-release. Subjects are
 # discovered on disk, a gate that finds none fails, and every gate is verified in red by test/bats/gates-red.bats.
-#   CF-SEC    the only secret the family may declare is the optional INTERNAL_DENYLIST of lego-node-ci; nothing looks like a credential
+#   CF-SEC    the only secret the family may declare is the optional INTERNAL_DENYLIST, in lego-node-ci and lego-package-release; nothing looks like a credential
 #   CF-TOKEN  the token of the run is read only in the env: of a step of a composite that only the release job uses
 #   CF-REL    the release job: no checkout, no caller code, only the artifact and the publish composite; the gate job: read-only, one pack
 #   CF-NOREWRITE  the script of the release job never rewrites a published Release and never prints the token
@@ -10,9 +10,10 @@
 
 load 'lib/gates'
 
-# The ONE secret of the family and the workflow that declares it. Declared twice on purpose (SPEC corollary b): here, and in the contract and the
-# workflow; an entry whose workflow stopped declaring it fails the gate as stale.
-declare -gA CF_SECRETS=([lego-node-ci]=INTERNAL_DENYLIST)
+# The ONE secret of the family and the workflows that declare it (both run the tests of a caller, which may include the public-names gate of a
+# public repository). Declared twice on purpose (SPEC corollary b): here, and in the contract and the workflow; an entry whose workflow stopped
+# declaring it fails the gate as stale.
+declare -gA CF_SECRETS=([lego-node-ci]=INTERNAL_DENYLIST [lego-package-release]=INTERNAL_DENYLIST)
 
 # What the release job may `uses:`. An unknown step type must be a conscious change of this list, with its reason:
 #   actions/download-artifact  brings the artifact of the gate (data, never executed)
@@ -30,7 +31,7 @@ composites_of_job() {
 # code_lines <file>: the lines of a file that are not comments
 code_lines() { grep -vE '^[[:space:]]*#' "$GATES_ROOT/$1" || true; }
 
-@test "CF-SEC: the only secret of the cloud-free family is the optional INTERNAL_DENYLIST of lego-node-ci; nothing else looks like a credential" {
+@test "CF-SEC: the only secret of the cloud-free family is the optional INTERNAL_DENYLIST of lego-node-ci and lego-package-release; nothing else looks like a credential" {
   gate_require_tools yq jq
   gate_discover CF-SEC contracts -maxdepth 1 -type f -name 'lego-*.contract.yml' -not -name 'lego-aws-*.contract.yml'
   local contracts=("${GATE_SUBJECTS[@]}")
@@ -78,7 +79,7 @@ code_lines() { grep -vE '^[[:space:]]*#' "$GATES_ROOT/$1" || true; }
     while IFS= read -r key; do
       [[ -n $key ]] || continue
       [[ $key == "$allowed" ]] ||
-        gate_violation "$f" "declares the secret '$key': the only secret a cloud-free workflow may declare is ${CF_SECRETS[lego-node-ci]}, and only lego-node-ci (CF-SEC)"
+        gate_violation "$f" "declares the secret '$key': the only secret a cloud-free workflow may declare is INTERNAL_DENYLIST, and only ${!CF_SECRETS[*]} (CF-SEC)"
     done <<<"$declared"
   done
 

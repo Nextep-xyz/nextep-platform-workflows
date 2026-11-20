@@ -2,6 +2,8 @@
 # GitHub Release: no registry, no cloud, no token. The caller decides WHEN it runs: the push of a version tag <tag-prefix>X.Y.Z, and its job grants
 # `contents: write` (the release job of the workflow needs it; the gate job asks for read). The barrier is a ruleset of tags in this repository:
 # only maintainers create `shop-lib-v*` and nobody moves or deletes one (docs/runbook.md section 9). Pin the workflow by tag, never @main.
+# Optional: the list of internal names for the public-names gate of a public repository. The gate job runs the package's tests, and without the
+# list that gate fails closed, so a public repository passes it here as well as in its CI caller. Name it, never `inherit`.
 name: release-shop-lib
 on:
   push:
@@ -14,3 +16,5 @@ jobs:
     with:
       package-dir: packages/shop-lib
       tag-prefix: shop-lib-v
+    secrets:
+      INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}

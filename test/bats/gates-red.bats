@@ -1021,7 +1021,7 @@ jobs: []
   [[ "$output" != *"callers/node-ci.yml"* && "$output" != *"callers/package-release.yml"* ]] || { echo "$output"; return 1; }
 }
 
-@test "CF-SEC red: another secret, a required secret, the denylist in the release workflow, credential-looking inputs, a secret read twice or elsewhere and a stale entry are named" {
+@test "CF-SEC red: another secret, a required secret, the denylist in any other workflow, credential-looking inputs, a secret read twice or elsewhere and a stale entry are named" {
   cf_fixture
   yq -i '.secrets.NPM_TOKEN = {"required": true}' "$FX/contracts/lego-node-ci.contract.yml"
   yq -i '.on.workflow_call.secrets.NPM_TOKEN = {"required": true} | .on.workflow_call.secrets.INTERNAL_DENYLIST.required = true' "$NODECI"
@@ -1032,12 +1032,23 @@ jobs: []
   [[ "$output" == *"lego-node-ci.yml: secret 'INTERNAL_DENYLIST' must not be required"* ]]
 
   cf_fixture
-  yq -i '.secrets.INTERNAL_DENYLIST = {"required": false} | .inputs.github-token = {"type": "string"}' "$FX/contracts/lego-package-release.contract.yml"
-  yq -i '.on.workflow_call.secrets.INTERNAL_DENYLIST.required = false | .on.workflow_call.inputs.auth-token = {"type": "string"}' "$RELEASE"
-  red cloud-free.bats "contracts/lego-package-release.contract.yml: declares the secret 'INTERNAL_DENYLIST'"
-  [[ "$output" == *"lego-package-release.yml: declares the secret 'INTERNAL_DENYLIST'"* ]]
+  yq -i '.secrets.PUBLISH_PAT = {"required": false} | .inputs.github-token = {"type": "string"}' "$FX/contracts/lego-package-release.contract.yml"
+  yq -i '.on.workflow_call.secrets.PUBLISH_PAT.required = false | .on.workflow_call.inputs.auth-token = {"type": "string"}' "$RELEASE"
+  red cloud-free.bats "contracts/lego-package-release.contract.yml: declares the secret 'PUBLISH_PAT'"
+  [[ "$output" == *"lego-package-release.yml: declares the secret 'PUBLISH_PAT'"* ]]
   [[ "$output" == *"contracts/lego-package-release.contract.yml: input 'github-token' looks like a credential"* ]]
   [[ "$output" == *"lego-package-release.yml: input 'auth-token' looks like a credential"* ]]
+  # the denylist, which the release now takes, is judged like in lego-node-ci: never required
+  cf_fixture
+  yq -i '.on.workflow_call.secrets.INTERNAL_DENYLIST.required = true' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: secret 'INTERNAL_DENYLIST' must not be required"
+  # ... and it must reach exactly one place, the env: of the test step of the gate job: not the pack step, not the release job
+  cf_fixture
+  yq -i '(.jobs.gate.steps[] | select(.id == "pack")).env.Z = "${{ secrets.INTERNAL_DENYLIST }}"' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: secret 'INTERNAL_DENYLIST' is read in more than one place"
+  cf_fixture
+  yq -i 'del(.jobs.gate.steps[] | select(.name == "Test").env)' "$RELEASE"
+  red cloud-free.bats "lego-package-release.yml: secret 'INTERNAL_DENYLIST' must reach exactly one place: the env: of the node-ci test step (found 0)"
 
   cf_fixture
   yq -i '(.jobs.ci.steps[] | select(.name == "Typecheck")).env.X = "${{ secrets.INTERNAL_DENYLIST }}"' "$NODECI"
@@ -1051,6 +1062,11 @@ jobs: []
   yq -i 'del(.secrets.INTERNAL_DENYLIST)' "$FX/contracts/lego-node-ci.contract.yml"
   yq -i 'del(.on.workflow_call.secrets) | del(.jobs.ci.steps[] | select(.name == "Test").env.INTERNAL_DENYLIST)' "$NODECI"
   red cloud-free.bats "contracts/lego-node-ci.contract.yml: is in the CF-SEC allowlist for the secret 'INTERNAL_DENYLIST' but no longer declares it (stale entry"
+
+  cf_fixture
+  yq -i 'del(.secrets.INTERNAL_DENYLIST)' "$FX/contracts/lego-package-release.contract.yml"
+  yq -i 'del(.on.workflow_call.secrets) | del(.jobs.gate.steps[] | select(.name == "Test").env.INTERNAL_DENYLIST)' "$RELEASE"
+  red cloud-free.bats "contracts/lego-package-release.contract.yml: is in the CF-SEC allowlist for the secret 'INTERNAL_DENYLIST' but no longer declares it (stale entry"
 }
 
 @test "CF-TOKEN red: the token in a workflow, in a with:, in a run or an argument of the release composite, or in a composite the gate job uses is named" {

@@ -4,9 +4,12 @@
 # Contract: contracts/lego-package-release.contract.yml (gate G12). The job names (`gate`, `release`) are IRREVERSIBLE.
 # The caller decides WHEN it runs: the push of a version tag <tag-prefix>X.Y.Z, and grants `contents: write` to its job (the release job
 # needs it). The barrier is a tag ruleset in the caller's repository (docs/runbook.md section 9).
-# No token input and no secret (gate CF-SEC): the Release is created with the GITHUB_TOKEN of the run, which only the `release` job holds with
+# No token input (gate CF-SEC): the Release is created with the GITHUB_TOKEN of the run, which only the `release` job holds with
 # contents: write, and only in the env: of the step that talks to the API (gate CF-TOKEN). That job does not check out and runs no code of the
 # caller's repository.
+# The only secret is the optional INTERNAL_DENYLIST, the same one lego-node-ci takes: the gate job runs the package's tests, and for a public
+# repository those include the public-names gate, which fails closed without the list. It reaches ONLY the env: of the test step of the gate
+# job (never the release job, which runs no code of the caller). A release never sets GATE_FORK_PR: a tag push has no fork to excuse.
 name: lego-package-release
 
 on:
@@ -24,6 +27,10 @@ on:
         description: "Node version."
         type: string
         default: "22"
+    secrets:
+      INTERNAL_DENYLIST:
+        description: "Optional list of internal names (newline or comma separated) for the public-names gate. It only reaches the env: of the test step of the gate job."
+        required: false
 
 jobs:
   gate:
@@ -57,6 +64,8 @@ jobs:
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
         with:
           command: test
+        env:
+          INTERNAL_DENYLIST: ${{ secrets.INTERNAL_DENYLIST }}
       # The one and only `npm pack` of the run. What it produces is what the release job publishes.
       - name: Pack and review the tarball
         id: pack
