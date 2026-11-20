@@ -37,7 +37,7 @@ YAML
 
 @test "every workflow-driven gate fails with '0 subjects' when no lego-aws workflow exists" {
   local g
-  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats no-static-registry-token.bats package-publish-flow.bats cloud-free.bats; do
+  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats no-static-registry-token.bats package-publish-flow.bats cloud-free.bats packages-evidence.bats; do
     run bats "$REPO_ROOT/test/gates/$g"
     [ "$status" -ne 0 ]
     [[ "$output" == *"0 subjects discovered"* ]] || { echo "$g: $output"; return 1; }
@@ -942,13 +942,13 @@ YAML
 # ---- the cloud-free family (lego-node-ci, lego-package-release) -----------------------------------------------------------------
 # cf_fixture: copies the real files of the family into $FX, so each test breaks ONE thing in a tree that is otherwise the real one.
 cf_fixture() {
-  rm -rf "$FX/.github/workflows/lego-node-ci.yml" "$FX/.github/workflows/lego-package-release.yml" "$FX/.github/actions/node-ci" \
+  rm -rf "$FX/.github/workflows/lego-node-ci.yml" "$FX/.github/workflows/lego-package-release.yml" "$FX/.github/actions/node-ci" "$FX/.github/actions/nextep-packages-evidence" \
     "$FX/.github/actions/package-release-check" "$FX/.github/actions/package-release-publish" "$FX/test/sandbox"
   mkdir -p "$FX/test/sandbox/callers" "$FX/.github/actions"
   cp "$REPO_ROOT"/.github/workflows/lego-node-ci.yml "$REPO_ROOT"/.github/workflows/lego-package-release.yml "$FX/.github/workflows/"
   cp "$REPO_ROOT"/contracts/lego-node-ci.contract.yml "$REPO_ROOT"/contracts/lego-package-release.contract.yml "$FX/contracts/"
-  cp -r "$REPO_ROOT"/.github/actions/node-ci "$REPO_ROOT"/.github/actions/package-release-check "$REPO_ROOT"/.github/actions/package-release-publish "$REPO_ROOT"/.github/actions/setup-project "$FX/.github/actions/"
-  cp "$REPO_ROOT"/scripts/tarball-release.sh "$FX/scripts/"
+  cp -r "$REPO_ROOT"/.github/actions/node-ci "$REPO_ROOT"/.github/actions/nextep-packages-evidence "$REPO_ROOT"/.github/actions/package-release-check "$REPO_ROOT"/.github/actions/package-release-publish "$REPO_ROOT"/.github/actions/setup-project "$FX/.github/actions/"
+  cp "$REPO_ROOT"/scripts/tarball-release.sh "$REPO_ROOT"/scripts/packages-evidence.sh "$FX/scripts/"
   cp "$REPO_ROOT"/test/sandbox/callers/node-ci.yml "$REPO_ROOT"/test/sandbox/callers/package-release.yml "$FX/test/sandbox/callers/"
   NODECI="$FX/.github/workflows/lego-node-ci.yml"
   RELEASE="$FX/.github/workflows/lego-package-release.yml"
@@ -1183,4 +1183,137 @@ YAML
   chmod 644 "$FX/scripts/loose.sh"
   red script-modes.bats "scripts/loose.sh: is run by .github/actions/demo/action.yml but is not executable"
   [[ "$output" == *"runs scripts/missing.sh, which does not exist"* ]]
+}
+
+# ---- the packages evidence (PE-*) -----------------------------------------------------------------------------------------------
+# pe_fixture: the real files of the evidence in $FX, so each test breaks ONE thing in a tree that is otherwise the real one.
+pe_fixture() {
+  rm -rf "$FX/.github" "$FX/contracts" "$FX/scripts"
+  mkdir -p "$FX/.github/workflows" "$FX/.github/actions" "$FX/contracts" "$FX/scripts"
+  cp "$REPO_ROOT"/.github/workflows/lego-node-ci.yml "$REPO_ROOT"/.github/workflows/lego-aws-cicd.yml "$FX/.github/workflows/"
+  cp "$REPO_ROOT"/contracts/lego-node-ci.contract.yml "$REPO_ROOT"/contracts/lego-aws-cicd.contract.yml "$FX/contracts/"
+  cp -r "$REPO_ROOT"/.github/actions/nextep-packages-evidence "$FX/.github/actions/"
+  cp "$REPO_ROOT"/scripts/packages-evidence.sh "$FX/scripts/"
+  NODECI="$FX/.github/workflows/lego-node-ci.yml"
+  CICD="$FX/.github/workflows/lego-aws-cicd.yml"
+  PEACT="$FX/.github/actions/nextep-packages-evidence/action.yml"
+  PESCRIPT="$FX/scripts/packages-evidence.sh"
+  PE_STEP='.jobs.ci.steps[] | select(.name == "Packages evidence")'
+  PE_STEP_CICD='.jobs["quality-and-security-gate"].steps[] | select(.name == "Packages evidence")'
+}
+
+@test "the PE fixture is clean: every PE gate passes on the real files of the evidence" {
+  pe_fixture
+  run bats "$REPO_ROOT/test/gates/packages-evidence.bats"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "PE-REQUIRED red: a required workflow without the step, a stale entry, a double use and no use at all are named" {
+  pe_fixture
+  yq -i 'del('"$PE_STEP_CICD"')' "$CICD"
+  red packages-evidence.bats "lego-aws-cicd.yml: must invoke the nextep-packages-evidence composite exactly once (found 0)"
+
+  pe_fixture
+  rm "$CICD"
+  red packages-evidence.bats ".github/workflows/lego-aws-cicd.yml: is in the PE-REQUIRED list of the gate but does not exist (stale entry)"
+
+  pe_fixture
+  yq -i '.jobs.ci.steps += [(.jobs.ci.steps[] | select(.name == "Packages evidence"))]' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: must invoke the nextep-packages-evidence composite exactly once (found 2)"
+
+  pe_fixture
+  yq -i 'del('"$PE_STEP"')' "$NODECI"
+  yq -i 'del('"$PE_STEP_CICD"')' "$CICD"
+  red packages-evidence.bats ".github/workflows: no workflow invokes the nextep-packages-evidence composite"
+}
+
+@test "PE-ALWAYS red: no always(), no switch, continue-on-error, and a composite step that can be skipped are named" {
+  pe_fixture
+  yq -i '('"$PE_STEP"').if = "${{ inputs.packages-evidence }}"' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: the evidence step of job 'ci' has no always() in its 'if:'"
+
+  pe_fixture
+  yq -i '('"$PE_STEP_CICD"').if = "${{ always() }}"' "$CICD"
+  red packages-evidence.bats "lego-aws-cicd.yml: the evidence step of job 'quality-and-security-gate' is not conditioned on inputs.packages-evidence"
+
+  pe_fixture
+  yq -i '('"$PE_STEP"')."continue-on-error" = true' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: the evidence step sets continue-on-error"
+
+  pe_fixture
+  yq -i 'del(.runs.steps[0].if)' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: a step of the composite has no 'if: always()'"
+}
+
+@test "PE-OUTCOME red: a fixed text, an unknown id, a step that runs later, a non-validation step, a validation left out and one without id are named" {
+  pe_fixture
+  yq -i '('"$PE_STEP"').with.validations = "Tests=success\nTypecheck=${{ steps.typecheck.outcome }}"' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: job 'ci': the validation line 'Tests=success' is not '<label>=\${{ steps.<id>.outcome }}'"
+
+  pe_fixture
+  yq -i '('"$PE_STEP"').with.validations = "Tests=${{ steps.nope.outcome }}\nTypecheck=${{ steps.typecheck.outcome }}"' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: job 'ci': the validation 'Tests' reads steps.nope.outcome but no step of the job has that id"
+
+  pe_fixture
+  yq -i '.jobs.ci.steps |= ([.[] | select(.name == "Packages evidence")] + [.[] | select(.name != "Packages evidence")])' "$NODECI"
+  red packages-evidence.bats "does not run BEFORE the evidence step"
+
+  pe_fixture
+  yq -i '(.jobs.ci.steps[] | select(.name == "Check out the caller repository")).id = "checkout" | ('"$PE_STEP"').with.validations = "Tests=${{ steps.checkout.outcome }}\nTypecheck=${{ steps.typecheck.outcome }}"' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: job 'ci': the validation 'Tests' reads steps.checkout.outcome, which is not a validation step"
+
+  pe_fixture
+  yq -i '('"$PE_STEP"').with.validations = "Tests=${{ steps.test.outcome }}"' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: job 'ci': the validation step 'typecheck' (node-ci) is not reported by the evidence step"
+
+  pe_fixture
+  yq -i 'del((.jobs.ci.steps[] | select(.name == "Typecheck")).id)' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: job 'ci': the step 'Typecheck' uses the node-ci validation composite and has no id"
+}
+
+@test "PE-INPUT red: a string input, a default of false and a contract that drifts are named" {
+  pe_fixture
+  yq -i '.on.workflow_call.inputs."packages-evidence".default = false' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: input 'packages-evidence' must be a boolean, not required, with default true"
+
+  pe_fixture
+  yq -i '.on.workflow_call.inputs."packages-evidence".type = "string"' "$CICD"
+  red packages-evidence.bats "lego-aws-cicd.yml: input 'packages-evidence' must be a boolean, not required, with default true"
+
+  pe_fixture
+  yq -i '.inputs."packages-evidence".default = false' "$FX/contracts/lego-node-ci.contract.yml"
+  red packages-evidence.bats "contracts/lego-node-ci.contract.yml: input 'packages-evidence' must be a boolean with default true"
+}
+
+@test "PE-SAFE red: a network call, an install, a secret, an env dump, a binary without a clean environment and a composite that hands over a token are named" {
+  pe_fixture
+  sed -i 's#^  command -v jq >/dev/null#  curl -s https://example.org/upload >/dev/null\n  command -v jq >/dev/null#' "$PESCRIPT"
+  red packages-evidence.bats "scripts/packages-evidence.sh: line"
+  [[ "$output" == *"runs a network, install or package-manager command"* ]]
+
+  pe_fixture
+  sed -i 's#^  command -v jq >/dev/null#  pnpm install\n  command -v jq >/dev/null#' "$PESCRIPT"
+  red packages-evidence.bats "runs a network, install or package-manager command"
+
+  pe_fixture
+  sed -i 's#^  command -v jq >/dev/null#  echo "$INTERNAL_DENYLIST"\n  command -v jq >/dev/null#' "$PESCRIPT"
+  red packages-evidence.bats "scripts/packages-evidence.sh: line"
+  [[ "$output" == *"reads a secret, dumps the environment or traces the shell"* ]]
+
+  pe_fixture
+  sed -i 's#^  command -v jq >/dev/null#  env > /tmp/dump\n  command -v jq >/dev/null#' "$PESCRIPT"
+  red packages-evidence.bats "reads a secret, dumps the environment or traces the shell"
+
+  pe_fixture
+  sed -i 's#env -i PATH="\$PATH" HOME="\${HOME:-/}" LC_ALL=C ##' "$PESCRIPT"
+  red packages-evidence.bats "scripts/packages-evidence.sh: the installed binary must run through 'env -i PATH=…'"
+
+  pe_fixture
+  yq -i '.runs.steps[0].env.GH_TOKEN = "${{ secrets.PUBLISH_PAT }}"' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: hands the variable 'GH_TOKEN' to the script"
+  [[ "$output" == *"mentions a secret, the token, id-token or permissions"* ]]
+
+  pe_fixture
+  yq -i '.runs.steps += [{"name": "extra", "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "if": "always()"}]' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: uses another action"
 }

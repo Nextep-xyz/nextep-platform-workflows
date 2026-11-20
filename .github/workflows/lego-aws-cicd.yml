@@ -226,6 +226,10 @@ on:
         description: "Audience of the OIDC token requested for the collector: a plain lower-case slug (no dots). Empty disables telemetry. Set it from a repository variable."
         type: string
         default: ""
+      packages-evidence:
+        description: "Write the evidence of the @nextep/* packages (table of versions, origin, integrity, guardrails rules and the real result of the quality gate) to the summary of the gate job. It reads outcomes, runs no caller command and never fails the job."
+        type: boolean
+        default: true
 
 jobs:
   quality-and-security-gate:
@@ -278,6 +282,7 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
       # parity: P-CI-02, P-CI-03, P-CI-04
       - name: Quality gate
+        id: quality-gate
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
         with:
           project: ${{ inputs.project }}
@@ -289,6 +294,16 @@ jobs:
           test-command: ${{ inputs.test-command }}
           test-postgres: ${{ inputs.test-postgres }}
           build-command: ${{ inputs.build-command }}
+      # Reporting only: it runs even when the gate failed (always()), reads the REAL outcome of the quality gate and never fails the job.
+      # It sits before the end stamp because gate T9 keeps that stamp as the last step of the job.
+      - name: Packages evidence
+        if: ${{ always() && inputs.packages-evidence }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@main
+        with:
+          install-dirs: ${{ inputs.install-dirs }}
+          package-manager: ${{ inputs.package-manager }}
+          validations: |
+            Quality gate (lint and tests)=${{ steps.quality-gate.outcome }}
       - name: Stamp the end
         id: stamp-end
         if: ${{ always() }}

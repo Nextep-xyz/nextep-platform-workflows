@@ -1,0 +1,8 @@
+{
+  "name": "app",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "@nextep/cdk-guardrails": "https://github.com/example-org/shop/releases/download/v0.1.0/nextep-cdk-guardrails-0.1.0.tgz"
+  }
+}

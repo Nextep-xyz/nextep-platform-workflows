@@ -14,6 +14,10 @@ on:
         description: "Node version."
         type: string
         default: "22"
+      packages-evidence:
+        description: "Write the evidence of the @nextep/* packages (table of versions, origin, integrity, guardrails rules and the real result of the validations) to the summary of the run. It reads outcomes, runs no caller command and never fails the job."
+        type: boolean
+        default: true
     secrets:
       INTERNAL_DENYLIST:
         description: "Optional list of internal names (newline or comma separated) for the public-names gate. It only reaches the env: of the test step."
@@ -37,6 +41,7 @@ jobs:
           package-manager: pnpm
           node-version: ${{ inputs.node-version }}
       - name: Test
+        id: test
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
         with:
           command: test
@@ -45,6 +50,16 @@ jobs:
           # A pull request from a fork has no access to secrets: the gate then runs only its generic detectors. On every other event this is 'false'.
           GATE_FORK_PR: ${{ github.event.pull_request.head.repo.fork == true && 'true' || 'false' }}
       - name: Typecheck
+        id: typecheck
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
         with:
           command: typecheck
+      # Reporting only: it runs even when the validation failed (always()), reads the REAL outcome of the steps above and never fails the job.
+      - name: Packages evidence
+        if: ${{ always() && inputs.packages-evidence }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@main
+        with:
+          package-manager: pnpm
+          validations: |
+            Tests (pnpm test)=${{ steps.test.outcome }}
+            Typecheck (pnpm typecheck)=${{ steps.typecheck.outcome }}

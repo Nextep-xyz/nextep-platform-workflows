@@ -8,6 +8,9 @@ inputs:
   node-version:
     type: string
     default: "22"
+  packages-evidence:
+    type: boolean
+    default: true
 secrets:
   INTERNAL_DENYLIST:
     required: false

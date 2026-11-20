@@ -1,0 +1,24 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@nextep/cdk-guardrails':
+        specifier: https://github.com/example-org/shop/releases/download/v0.1.0/nextep-cdk-guardrails-0.1.0.tgz
+        version: https://github.com/example-org/shop/releases/download/v0.1.0/nextep-cdk-guardrails-0.1.0.tgz
+
+packages:
+
+  '@nextep/cdk-guardrails@https://github.com/example-org/shop/releases/download/v0.1.0/nextep-cdk-guardrails-0.1.0.tgz':
+    resolution: {integrity: sha512-VU8Lx+/7T4u8+/qEUDgiVyoRSSAZIyHfRv8EJwtPlLlXQwCkvgPMd6UL52nAgG01r3O13GblbWq2XkNokgqrdw==, tarball: https://github.com/example-org/shop/releases/download/v0.1.0/nextep-cdk-guardrails-0.1.0.tgz}
+    version: 0.1.0
+    hasBin: true
+
+snapshots:
+
+  '@nextep/cdk-guardrails@https://github.com/example-org/shop/releases/download/v0.1.0/nextep-cdk-guardrails-0.1.0.tgz': {}

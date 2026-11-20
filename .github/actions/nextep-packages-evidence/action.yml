@@ -1,0 +1,30 @@
+name: nextep-packages-evidence
+description: Writes to the step summary a table of the @nextep/* packages of the repository (found on disk, resolved in their lockfile) and the REAL outcome of the validation steps. Honest by construction - it reads steps.<id>.outcome and never prints a fixed "all OK". No network, no secret, no permission. It never fails the job.
+inputs:
+  install-dirs:
+    description: Comma separated package roots (the same value the install used).
+    required: false
+    default: "."
+  package-manager:
+    description: npm or pnpm.
+    required: false
+    default: pnpm
+  validations:
+    description: "One `<label>=<outcome>` per line, where the outcome is `steps.<id>.outcome` of the validation step. A fixed value defeats the purpose (gate PE-OUTCOME)."
+    required: true
+runs:
+  using: composite
+  # The calling step carries `if: always()` (gate PE-ALWAYS) and so does the step below: the evidence must also be written when the validation failed.
+  steps:
+    - name: Write the packages evidence to the summary
+      if: always()
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        INSTALL_DIRS: ${{ inputs.install-dirs }}
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        VALIDATIONS: ${{ inputs.validations }}
+        JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/packages-evidence.sh" run

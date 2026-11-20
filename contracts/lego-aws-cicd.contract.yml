@@ -168,6 +168,10 @@ inputs:
   telemetry-audience:
     type: string
     default: ""
+  # --- evidence of the @nextep/* packages in the summary of the gate job (docs/runbook.md section 11); true keeps it on ------------
+  packages-evidence:
+    type: boolean
+    default: true
 secrets: {}
 outputs: {}
 jobs:

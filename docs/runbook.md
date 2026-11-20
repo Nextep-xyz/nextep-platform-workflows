@@ -1,4 +1,4 @@
-# Runbook: adoption and operation of `lego-aws-cicd`, `lego-aws-environment-deploy`, `lego-aws-package-publish` (section 6), `lego-node-ci` and `lego-package-release` (section 9)
+# Runbook: adoption and operation of `lego-aws-cicd`, `lego-aws-environment-deploy`, `lego-aws-package-publish` (section 6), `lego-node-ci` and `lego-package-release` (section 9), `lego-aws-image-publish` (section 10) and the packages evidence (section 11)
 
 > Status: **written, not exercised against a real account.** Everything marked NOT VERIFIED is an open question.
 
@@ -450,3 +450,54 @@ It pins `version` and `digest` in a versioned file of its own repository (a pull
 ### 10.5 NOT VERIFIED
 
 Written from the documentation and verified with `aws` and `docker` fakes and the gates. **Not run against a real account:** the exact ECR action set of the role, `job_workflow_ref` as an IAM condition (ADR 0001), `aws-actions/amazon-ecr-login` followed by `docker build`/`push` on `ubuntu-latest` with this workflow, `--platform` with the classic builder, and the content of the run summary.
+
+## 11. Evidence of the `@nextep/*` packages in the run summary (`packages-evidence`, since v1.7.0)
+
+Teams keep compliance evidence as a **screenshot of the run summary**. `lego-node-ci` (job `ci`) and `lego-aws-cicd` (job `quality-and-security-gate`) end with a step, **Packages evidence**, that writes one block to `GITHUB_STEP_SUMMARY`: which `@nextep/*` packages the repository uses, where they come from, and whether the validations that ran against them passed. It is built by the composite `nextep-packages-evidence` and `scripts/packages-evidence.sh`; the gates are `PE-*` in `test/gates/packages-evidence.bats`.
+
+### 11.1 The rule: it is honest or it is nothing
+
+There is **no fixed "all OK" text anywhere**. The step runs with `always()` right after the validation, so it is written when the validation **failed or was skipped**; the result it prints is `steps.<id>.outcome` of the real validation steps (`Tests`, `Typecheck` in `lego-node-ci`; `Quality gate` in `lego-aws-cicd`), passed in as `<label>=<outcome>` lines. Gate `PE-OUTCOME` fails the build if a line is a literal, names a step that does not exist or runs later, or if a validation step of the job is left out of the list.
+
+The headline is **✅ VERIFIED** only when at least one package is evidenced, every row is green, the guardrails binary listed rules and every validation passed. Otherwise:
+
+| Headline | When |
+|---|---|
+| `❌ FAILED` | any package row, guardrails row or validation is red (failure, cancelled, an unknown outcome, **or no validation reported to the block**) |
+| `⏭️ INCOMPLETE` | everything checked is green but a validation did not run (`skipped`) |
+| `n/a` | the repository declares no `@nextep/*` dependency, or only in-repo `workspace:` ones. **Nothing green is printed**: a passing validation is shown as `➖ passed (no packages to evidence)`, a failing one is still `❌` |
+| `❌ COULD NOT BE GENERATED` | the script itself broke (for example `yq` missing); the block says to treat the run as having **no** package evidence |
+
+The step **never fails the job** (`continue-on-error` is forbidden outside reporting by gate G-COE; the script simply exits 0 and writes the red block plus a `::warning::`). A report must not turn a good CI red nor hide a red one. A red evidence block on a green job is intentional: it is what the screenshot must show.
+
+### 11.2 What the block contains
+
+1. **Header**: repository, short commit, ref, UTC time, a link to the run **and attempt**, and the exact platform ref that ran (`job_workflow_ref`, for example `example-org/platform/.github/workflows/lego-node-ci.yml@refs/tags/vX.Y.Z`; `@refs/heads/main` here means the caller did not pin a tag).
+2. **Packages**: one row per `@nextep/*` entry in `dependencies`, `devDependencies` and `optionalDependencies` of **every `package.json` found on disk** under each `install-dirs` root (`node_modules`, `.git` and `cdk.out` are skipped; there is no list of packages anywhere), resolved in the lockfile of that root (`pnpm-lock.yaml` or `package-lock.json`, as `package-manager` says). Columns: package, where it is declared, resolved version, origin (the tarball URL), integrity, whether the declared spec is exact, status. Peer dependencies are not listed (a range there is the point of a peer).
+   A row is `❌` when: the spec is a range, tag, git or `file:` spec (only `X.Y.Z` or a GitHub Release URL is exact); the root has **no lockfile** (or it cannot be read); the package is not in it; its origin is not `https://github.com/<owner>/<repo>/releases/download/<tag>/<file>.tgz`; or the lockfile holds no integrity. A `workspace:` dependency is `➖` (in-repo, not a Release). The integrity is abbreviated for the screenshot; the full value is in the lockfile of the commit shown.
+3. **Guardrails rules**: for `@nextep/cdk-guardrails` the script runs `nextep-guardrails --list-rules` **from the installed package** (`<dir>/node_modules/.bin/…`, offline, with an empty environment, 60 s timeout, never through `npx`/`pnpm exec`) and prints how many rules there are and their ids. Only strings shaped like a rule id reach the summary. Not installed, non-zero exit or no rules is `❌`.
+4. **Validations**: the real outcome per check: `✅ passed`, `❌ FAILED`, `❌ cancelled`, `⏭️ did not run`.
+
+### 11.3 Configuring it
+
+On by default; nothing to change in a caller. Switch it off with `packages-evidence: false` (a boolean, in the workflow and in the contract). It needs no permission, no secret and no network beyond what the CI already does; the job's `permissions` are unchanged. `lego-aws-cicd` writes it in the gate job right before the end stamp (gate T9 keeps that stamp as the last step), so the few seconds of the block count in the gate's duration sent to telemetry.
+
+Everything printed that comes from the repository (names, specs, URLs) goes inside a code span with backticks and pipes neutralised, so a crafted `package.json` cannot reshape the table.
+
+### 11.4 Reading a red block
+
+| You see | Meaning | Action |
+|---|---|---|
+| `not an exact version` | the spec in `package.json` is `^`, `~`, `latest`, a git ref… | Pin the Release URL or `X.Y.Z` |
+| `no lockfile (<root>/pnpm-lock.yaml)` | the root has no lockfile for the configured package manager | Commit it; an immutable install needs it anyway |
+| `not found in the lockfile` | the lockfile does not resolve the dependency for that `package.json` | Reinstall and commit the lockfile |
+| `origin is not a GitHub Release URL` | the tarball comes from somewhere else (a mirror, a registry, a branch archive) | Point the dependency at the Release asset, or accept that this package is not Release-distributed (see 11.5) |
+| `not installed: ./node_modules/.bin/nextep-guardrails does not exist` | the install did not run or failed before this step | Fix the install; the validations row will say the same |
+| `❌ No validation outcome was reported` | a caller of the composite wired no validation (a defect of the workflow, gate `PE-OUTCOME`) | Fix the workflow |
+
+### 11.5 Limits and NOT VERIFIED
+
+- **A package installed from a registry** (for example CodeArtifact, `registry-scope`) has no Release URL: its row is `❌ origin is not a GitHub Release URL`. That is the strict reading of "distributed as a Release"; relaxing it for registry-served packages is a decision for the maintainers, not a default.
+- Only the gate job of `lego-aws-cicd` carries it; `lego-aws-environment-deploy` (its own gate and the deploys) does not.
+- A screenshot of a summary is evidence of what the run printed, not a signed attestation of the packages.
+- **Not exercised on GitHub.** Verified with fixtures that are the real output of `pnpm` 10 (lockfile v9) and `npm` 9 for a tarball dependency, a fake `nextep-guardrails`, and the gates in red. Open: that `github.job_workflow_ref` inside a composite called from a reusable workflow carries the reusable's ref; that `yq` (mikefarah v4) is on `ubuntu-latest` as the script assumes; the rendering of the block in the run summary; and the real output format of `nextep-guardrails --list-rules` (the parser takes the first token of each line as the rule id and ignores lines that are not shaped like one).
