@@ -11,12 +11,12 @@ URL='https://github.com/example-org/shop/releases/download/v0.1.0/nextep-cdk-gua
 FX="$REPO_ROOT/test/fixtures/packages-evidence"
 
 setup() {
-  unset INTERNAL_DENYLIST GATE_FORK_PR CODEARTIFACT_AUTH_TOKEN GITHUB_TOKEN INSTALL_DIRS PACKAGE_MANAGER VALIDATIONS
+  unset INTERNAL_DENYLIST GATE_FORK_PR CODEARTIFACT_AUTH_TOKEN GITHUB_TOKEN INSTALL_DIRS PACKAGE_MANAGER VALIDATIONS JOB_WORKFLOW_REF
   export GITHUB_STEP_SUMMARY="$BATS_TEST_TMPDIR/summary.md"
   : >"$GITHUB_STEP_SUMMARY"
   export GITHUB_REPOSITORY=example-org/shop GITHUB_SHA=0123456789abcdef0123456789abcdef01234567 GITHUB_REF=refs/heads/main
   export GITHUB_SERVER_URL=https://github.com GITHUB_RUN_ID=4242 GITHUB_RUN_ATTEMPT=2
-  export JOB_WORKFLOW_REF='example-org/platform/.github/workflows/lego-node-ci.yml@refs/tags/v9.9.9'
+  export ACTION_REPOSITORY=example-org/platform ACTION_REF=v9.9.9
   export FAKE_LOG="$BATS_TEST_TMPDIR/guardrails.log"
   : >"$FAKE_LOG"
   PROJ="$BATS_TEST_TMPDIR/proj"
@@ -107,10 +107,60 @@ default_guardrails() {
   summary | grep -qF '| Ref | `refs/heads/main` |'
   summary | grep -qE '\| Generated \(UTC\) \| [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z \|'
   summary | grep -qF '[4242 (attempt 2)](https://github.com/example-org/shop/actions/runs/4242/attempts/2)'
-  summary | grep -qF '| Platform | `example-org/platform/.github/workflows/lego-node-ci.yml@refs/tags/v9.9.9` |'
+  summary | grep -qF '| Platform | `example-org/platform@v9.9.9` |'
   # the validations are the ones reported
   summary | grep -qF '| `Tests` | ✅ passed |'
   summary | grep -qF '| `Typecheck` | ✅ passed |'
+}
+
+# --- K9 (the Platform row): the exact platform code that ran, or `not available`; never `unknown` for a value the context does not have ----
+@test "K9: the Platform row is <repository>@<ref> of the composite that ran, in a code span" {
+  printf '{ "name": "app" }\n' >package.json
+  pass_all
+  ACTION_REPOSITORY=example-org/platform ACTION_REF=0123456789abcdef0123456789abcdef01234567 run "$SCRIPTS/packages-evidence.sh" run
+  [ "$status" -eq 0 ]
+  summary | grep -qF '| Platform | `example-org/platform@0123456789abcdef0123456789abcdef01234567` |'
+}
+
+@test "K9: with the repository or the ref missing, or both, the row says 'not available' and never 'unknown'; the rest of the block is unchanged" {
+  printf '{ "name": "app" }\n' >package.json
+  pass_all
+  local repo ref
+  for pair in "example-org/platform:" ":v9.9.9" ":"; do
+    repo="${pair%%:*}"
+    ref="${pair#*:}"
+    : >"$GITHUB_STEP_SUMMARY"
+    ACTION_REPOSITORY="$repo" ACTION_REF="$ref" run "$SCRIPTS/packages-evidence.sh" run
+    [ "$status" -eq 0 ]
+    summary | grep -qxF '| Platform | not available |' || { echo "[$pair] $(summary)"; return 1; }
+    summary | grep -q 'packages evidence: n/a'
+    summary | grep -qF '| Repository | `example-org/shop` |'
+  done
+  # unset altogether (a caller of the script that never heard of these variables)
+  : >"$GITHUB_STEP_SUMMARY"
+  unset ACTION_REPOSITORY ACTION_REF
+  run "$SCRIPTS/packages-evidence.sh" run
+  summary | grep -qxF '| Platform | not available |'
+  absent 'Platform | `unknown`' "$GITHUB_STEP_SUMMARY"
+}
+
+@test "K9: job_workflow_ref is not a source any more: a value in JOB_WORKFLOW_REF never reaches the Platform row" {
+  printf '{ "name": "app" }\n' >package.json
+  pass_all
+  JOB_WORKFLOW_REF='example-org/platform/.github/workflows/lego-node-ci.yml@refs/tags/v9.9.9' ACTION_REPOSITORY="" ACTION_REF="" run "$SCRIPTS/packages-evidence.sh" run
+  [ "$status" -eq 0 ]
+  summary | grep -qxF '| Platform | not available |'
+  absent 'lego-node-ci' "$GITHUB_STEP_SUMMARY"
+}
+
+@test "K7/K9: the Platform value is neutralised inside its code span (a pipe, a backtick or a newline cannot reshape the table)" {
+  printf '{ "name": "app" }\n' >package.json
+  pass_all
+  ACTION_REPOSITORY='example-org/platform' ACTION_REF=$'v1|`**x**`\n# h' run "$SCRIPTS/packages-evidence.sh" run
+  [ "$status" -eq 0 ]
+  [ "$(grep -c '^| Platform |' "$GITHUB_STEP_SUMMARY")" -eq 1 ]
+  summary | grep -F '| Platform |' | grep -qF '¦'
+  absent '^# h' "$GITHUB_STEP_SUMMARY"
 }
 
 @test "(b) the guardrails rules come from the installed binary, offline: how many and which ids" {

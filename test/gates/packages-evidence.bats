@@ -8,6 +8,9 @@
 #   PE-OUTCOME   the validations it reports are `steps.<id>.outcome` of steps that exist, run BEFORE it, and are validations (a fixed text is the
 #                defect this gate exists to forbid); every validation step of the job is reported (none can be left out)
 #   PE-INPUT     `packages-evidence` is a boolean that defaults to true, in the workflow and in its contract
+#   PE-PLATFORM  the Platform row comes from the action context (github.action_repository plus github.action_ref), never from job_workflow_ref (an OIDC
+#                claim, empty in the github context); a value the context lacks is `not available`, never `unknown`; every variable the composite
+#                hands over is read by the script
 #   PE-SAFE      the composite and the script: no network, no install, no caller command, no secret, no environment dump, a clean env for the binary
 
 load 'lib/gates'
@@ -17,7 +20,7 @@ PE_REQUIRED=(lego-node-ci lego-aws-cicd)
 # The composites whose steps ARE the validations of a job. A step of the job that uses one of them must be reported by the evidence step.
 PE_VALIDATION_COMPOSITES=(node-ci quality-gate)
 # The environment the composite may hand to its script (SCRIPTS is the path of the scripts; the rest are the data of the block).
-PE_COMPOSITE_ENV=(SCRIPTS INSTALL_DIRS PACKAGE_MANAGER ROOT_KINDS VALIDATIONS JOB_WORKFLOW_REF)
+PE_COMPOSITE_ENV=(SCRIPTS INSTALL_DIRS PACKAGE_MANAGER ROOT_KINDS VALIDATIONS ACTION_REPOSITORY ACTION_REF)
 PE_COMPOSITE=.github/actions/nextep-packages-evidence/action.yml
 PE_SCRIPT=scripts/packages-evidence.sh
 
@@ -192,6 +195,52 @@ composite_of() { sed -nE 's#.*/\.github/actions/([a-z0-9-]+)@.*#\1#p' <<<"$1"; }
       gate_violation "$PE_SCRIPT" "never reads ROOT_KINDS, which the composite hands over"
   fi
   gate_finish PE-INPUT
+}
+
+@test "PE-PLATFORM: the Platform row never depends on job_workflow_ref (an OIDC claim the github context lacks), it comes from the action context, and every variable the composite hands over is read by the script" {
+  gate_require_tools yq jq
+  gate_discover PE-PLATFORM .github/actions/nextep-packages-evidence scripts/packages-evidence.sh -type f
+  GATE_VIOLATIONS=()
+  local key line lines
+  if [[ -f $GATES_ROOT/$PE_COMPOSITE ]]; then
+    lines="$(code_lines "$PE_COMPOSITE" | grep -niE 'job_workflow_ref' || true)"
+    while IFS= read -r line; do
+      [[ -n $line ]] && gate_violation "$PE_COMPOSITE" "line ${line%%:*} references job_workflow_ref: it is a claim of the OIDC token, empty in the github context (verified in a real run); use github.action_repository and github.action_ref"
+    done <<<"$lines"
+    gate_json "$PE_COMPOSITE" | jq -e '[.runs.steps[].env.ACTION_REPOSITORY // empty] | any(. == "${{ github.action_repository }}")' >/dev/null ||
+      gate_violation "$PE_COMPOSITE" "must hand ACTION_REPOSITORY: \${{ github.action_repository }} to the script (the platform that ran)"
+    gate_json "$PE_COMPOSITE" | jq -e '[.runs.steps[].env.ACTION_REF // empty] | any(. == "${{ github.action_ref }}")' >/dev/null ||
+      gate_violation "$PE_COMPOSITE" "must hand ACTION_REF: \${{ github.action_ref }} to the script (the commit or tag of the platform that ran)"
+  fi
+  if [[ -f $GATES_ROOT/$PE_SCRIPT ]]; then
+    lines="$(code_lines "$PE_SCRIPT" | grep -niE 'job_workflow_ref' || true)"
+    while IFS= read -r line; do
+      [[ -n $line ]] && gate_violation "$PE_SCRIPT" "line ${line%%:*} reads job_workflow_ref: the Platform row must come from ACTION_REPOSITORY and ACTION_REF"
+    done <<<"$lines"
+    # a value the context does not have is said so: the row never prints 'unknown'
+    lines="$(code_lines "$PE_SCRIPT" | grep -nE "Platform.*unknown" || true)"
+    while IFS= read -r line; do
+      [[ -n $line ]] && gate_violation "$PE_SCRIPT" "line ${line%%:*} prints 'unknown' in the Platform row: it must say 'not available'"
+    done <<<"$lines"
+    code_lines "$PE_SCRIPT" | grep -q 'not available' ||
+      gate_violation "$PE_SCRIPT" "has no 'not available' for the Platform row"
+    # the wiring env: <-> variable of the script: what the composite hands over (discovered) and what the gate lists are all read
+    if [[ -f $GATES_ROOT/$PE_COMPOSITE ]]; then
+      while IFS= read -r key; do
+        [[ $key == SCRIPTS ]] && continue
+        code_lines "$PE_SCRIPT" | grep -qE "\\\$\\{?${key}([^A-Za-z0-9_]|\$)" ||
+          gate_violation "$PE_SCRIPT" "never reads $key, which the composite hands over (the wiring env: <-> variable has drifted)"
+      done < <(gate_json "$PE_COMPOSITE" | jq -r '[.runs.steps[].env // {} | keys[]] | unique | .[]')
+    fi
+    for key in "${PE_COMPOSITE_ENV[@]}"; do
+      [[ $key == SCRIPTS ]] && continue
+      if [[ -f $GATES_ROOT/$PE_COMPOSITE ]]; then
+        gate_json "$PE_COMPOSITE" | jq -e --arg k "$key" '[.runs.steps[].env // {} | has($k)] | any' >/dev/null ||
+          gate_violation "$PE_COMPOSITE" "does not hand $key to the script, and the script reads it (stale entry or drift in PE_COMPOSITE_ENV)"
+      fi
+    done
+  fi
+  gate_finish PE-PLATFORM
 }
 
 @test "PE-SAFE: the composite hands the script only its data; the script has no network, no install, no secret, no environment dump and runs the binary with a clean environment" {

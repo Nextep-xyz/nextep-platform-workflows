@@ -13,7 +13,10 @@
 #                       with CDK files that is not declared iac is red too. A required package that is missing marks the block red; it never
 #                       fails the job.
 #      VALIDATIONS      one `<label>=<outcome>` per line; outcome is steps.<id>.outcome (success | failure | cancelled | skipped)
-#      JOB_WORKFLOW_REF github.job_workflow_ref (the exact platform tag that ran)
+#      ACTION_REPOSITORY ACTION_REF  github.action_repository and github.action_ref of the composite that runs this script: the platform code
+#                       that ran (the ref is the commit a release pins). Both present -> `<repository>@<ref>`; either missing -> `not available`.
+#                       github.job_workflow_ref is NOT a source: it is a claim of the OIDC token, not a property of the github context (empty in
+#                       a real run), and gate PE-PLATFORM keeps it out.
 #      GITHUB_REPOSITORY GITHUB_SHA GITHUB_REF GITHUB_SERVER_URL GITHUB_RUN_ID GITHUB_RUN_ATTEMPT (set by the runner)
 # What it reads: every package.json under each install root (found on disk; node_modules, .git and cdk.out skipped) and the lockfile of that root.
 # What it runs: only `<dir>/node_modules/.bin/nextep-guardrails --list-rules` of an ALREADY installed package, with a minimal environment
@@ -432,7 +435,12 @@ render() {
   printf '| Ref | %s |\n' "$(code "${GITHUB_REF:-unknown}")"
   printf '| Generated (UTC) | %s |\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf '| Run | %s |\n' "$run_cell"
-  printf '| Platform | %s |\n' "$(code "${JOB_WORKFLOW_REF:-unknown}")"
+  # The platform that ran: both parts or nothing. A value the context does not have is said so, never printed as `unknown`.
+  if [[ -n ${ACTION_REPOSITORY:-} && -n ${ACTION_REF:-} ]]; then
+    printf '| Platform | %s |\n' "$(code "${ACTION_REPOSITORY}@${ACTION_REF}")"
+  else
+    printf '| Platform | not available |\n'
+  fi
   if ((kinds_mode)); then
     shown=""
     for kroot in "${kind_roots[@]}"; do shown+="${shown:+, }$(code "$kroot") → ${kind_of[$kroot]}"; done

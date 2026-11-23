@@ -22,7 +22,7 @@ setup() {
   : >"$GITHUB_STEP_SUMMARY"
   export GITHUB_REPOSITORY=example-org/shop GITHUB_SHA=0123456789abcdef0123456789abcdef01234567 GITHUB_REF=refs/heads/main
   export GITHUB_SERVER_URL=https://github.com GITHUB_RUN_ID=4242 GITHUB_RUN_ATTEMPT=1
-  export JOB_WORKFLOW_REF='example-org/platform/.github/workflows/lego-node-ci.yml@refs/tags/v9.9.9'
+  export ACTION_REPOSITORY=example-org/platform ACTION_REF=v9.9.9
   export FAKE_LOG="$BATS_TEST_TMPDIR/guardrails.log"
   : >"$FAKE_LOG"
   PROJ="$BATS_TEST_TMPDIR/proj"

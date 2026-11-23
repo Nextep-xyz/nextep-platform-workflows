@@ -29,7 +29,9 @@ runs:
         PACKAGE_MANAGER: ${{ inputs.package-manager }}
         ROOT_KINDS: ${{ inputs.root-kinds }}
         VALIDATIONS: ${{ inputs.validations }}
-        JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
+        # The platform code that runs this step (its own action context, not the OIDC claim job_workflow_ref, which the github context lacks).
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
       run: |
         set -euo pipefail
         "$SCRIPTS/packages-evidence.sh" run

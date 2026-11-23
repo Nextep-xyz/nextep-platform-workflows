@@ -1344,6 +1344,34 @@ pe_fixture() {
   red packages-evidence.bats "scripts/packages-evidence.sh: never reads ROOT_KINDS"
 }
 
+@test "PE-PLATFORM red: job_workflow_ref in the composite or the script, a missing action variable, an 'unknown' fallback and a variable the script never reads are named" {
+  pe_fixture
+  yq -i '.runs.steps[0].env.WF_REF = "${{ github.job_workflow_ref }}"' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: line"
+  [[ "$output" == *"references job_workflow_ref: it is a claim of the OIDC token"* ]]
+
+  pe_fixture
+  sed -i 's#^  command -v jq >/dev/null#  echo "${JOB_WORKFLOW_REF:-}" >/dev/null\n  command -v jq >/dev/null#' "$PESCRIPT"
+  red packages-evidence.bats "scripts/packages-evidence.sh: line"
+  [[ "$output" == *"reads job_workflow_ref: the Platform row must come from ACTION_REPOSITORY and ACTION_REF"* ]]
+
+  pe_fixture
+  yq -i 'del(.runs.steps[0].env.ACTION_REF)' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: must hand ACTION_REF"
+
+  pe_fixture
+  yq -i '.runs.steps[0].env.ACTION_REPOSITORY = "${{ github.repository }}"' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: must hand ACTION_REPOSITORY"
+
+  pe_fixture
+  sed -i "s#| Platform | not available |#| Platform | unknown |#" "$PESCRIPT"
+  red packages-evidence.bats "prints 'unknown' in the Platform row: it must say 'not available'"
+
+  pe_fixture
+  yq -i '.runs.steps[0].env.EXTRA_VALUE = "x"' "$PEACT"
+  red packages-evidence.bats "scripts/packages-evidence.sh: never reads EXTRA_VALUE, which the composite hands over"
+}
+
 # ---- root-kinds (RK-*) ---------------------------------------------------------------------------------------------------------------
 # rk_fixture: the real files of the policy, the vocabulary and the two workflows that declare the input.
 rk_fixture() {
