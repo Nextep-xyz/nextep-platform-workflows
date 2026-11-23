@@ -136,7 +136,7 @@ render() {
     done < <(jq -r 'to_entries | sort_by(.key)[] | [.key, .value] | join("\u001f")' <<<"$ROOT_KINDS")
   fi
 
-  local rows=() guard_rows=() manifests=0 declared=0 bad=0
+  local rows=() guard_rows=() row_root=() guard_root=() manifests=0 declared=0 bad=0
   local root m mdir rel lockjson section name spec problems version origin integrity exact origin_cell integrity_cell status
   local v res_version res_integrity res_tarball link found rkey bin out rc ids line id shown version_cell evidenced=0 prev cdk
   for root in "${scan_roots[@]}"; do
@@ -192,7 +192,7 @@ render() {
         grep -q '@nextep/' "$m" 2>/dev/null || continue
         declared=$((declared + 1))
         bad=$((bad + 1))
-        rows+=("| — | $(code "$m") | — | — | — | — | ❌ the manifest is not valid JSON |")
+        rows+=("| — | $(code "$m") | — | — | — | — | ❌ the manifest is not valid JSON |"); row_root+=("$kroot")
         continue
       fi
       if ((kinds_mode)) && jq -e '[.dependencies, .devDependencies, .peerDependencies, .optionalDependencies] | map(select(type == "object") | has("aws-cdk-lib")) | any' "$m" >/dev/null 2>&1; then
@@ -275,14 +275,14 @@ render() {
           fi
         fi
         if [[ -n $version ]]; then version_cell="$(code "$version")"; else version_cell="—"; fi
-        rows+=("| $(code "$name") | $(code "$m") ($section) | $version_cell | $origin_cell | $integrity_cell | $exact | $status |")
+        rows+=("| $(code "$name") | $(code "$m") ($section) | $version_cell | $origin_cell | $integrity_cell | $exact | $status |"); row_root+=("$kroot")
 
         # 3. the binary of the package that has one: the INSTALLED copy, offline, nothing but the rule ids reach the summary
         if [[ $name == "$GUARDRAILS_PACKAGE" && $exact != workspace ]]; then
           bin="$mdir/node_modules/.bin/$GUARDRAILS_BIN"
           if [[ ! -x $bin ]]; then
             bad=$((bad + 1))
-            guard_rows+=("| $(code "$name") | $(code "$mdir") | — | ❌ not installed: $(code "$bin") does not exist |")
+            guard_rows+=("| $(code "$name") | $(code "$mdir") | — | ❌ not installed: $(code "$bin") does not exist |"); guard_root+=("$kroot")
           else
             out="" rc=0 ids=()
             out="$(cd "$mdir" && env -i PATH="$PATH" HOME="${HOME:-/}" LC_ALL=C timeout 60 "./node_modules/.bin/$GUARDRAILS_BIN" --list-rules 2>/dev/null </dev/null)" || rc=$?
@@ -292,14 +292,14 @@ render() {
             done <<<"$out"
             if ((rc != 0)); then
               bad=$((bad + 1))
-              guard_rows+=("| $(code "$name") | $(code "$mdir") | — | ❌ $(code "$GUARDRAILS_BIN --list-rules") exited with code $rc |")
+              guard_rows+=("| $(code "$name") | $(code "$mdir") | — | ❌ $(code "$GUARDRAILS_BIN --list-rules") exited with code $rc |"); guard_root+=("$kroot")
             elif ((${#ids[@]} == 0)); then
               bad=$((bad + 1))
-              guard_rows+=("| $(code "$name") | $(code "$mdir") | 0 | ❌ the command listed no rules |")
+              guard_rows+=("| $(code "$name") | $(code "$mdir") | 0 | ❌ the command listed no rules |"); guard_root+=("$kroot")
             else
               shown="$(join_by ', ' "${ids[@]:0:100}")"
               if ((${#ids[@]} > 100)); then shown+=", … (+$((${#ids[@]} - 100)) more)"; fi
-              guard_rows+=("| $(code "$name") | $(code "$mdir") | ${#ids[@]} | $shown |")
+              guard_rows+=("| $(code "$name") | $(code "$mdir") | ${#ids[@]} | $shown |"); guard_root+=("$kroot")
             fi
           fi
         fi
@@ -310,12 +310,13 @@ render() {
   done
 
   # --- required by kind: what each declared kind asks for, against what its root declares (only with root-kinds) -----------------------------
-  local kind_rows=() req_bad=0 req_ok=0 req_defined=0 state pkg_name nodel_kinds=() cdir kr
+  local undeclared_rows=() req_bad=0 req_ok=0 req_defined=0 state pkg_name nodel_kinds=() cdir kr
+  declare -A req_rows=() no_pkg_kind=()
   if ((kinds_mode)); then
     for kroot in "${kind_roots[@]}"; do
       kind_name="${kind_of[$kroot]}"
       if [[ -z ${required_of[$kind_name]} ]]; then
-        kind_rows+=("| $(code "$kroot") | $kind_name | — | ➖ no packages are defined for this kind |")
+        no_pkg_kind[$kroot]=1
         case " ${nodel_kinds[*]:-} " in *" $kind_name "*) ;; *) nodel_kinds+=("$kind_name") ;; esac
         continue
       fi
@@ -336,7 +337,7 @@ render() {
           problem)
             # the row of the package already counted as a problem; it is repeated here so the screenshot reads without scrolling
             req_bad=$((req_bad + 1))
-            status="❌ required by kind $kind_name and declared, but with a problem (see Packages)"
+            status="❌ required by kind $kind_name and declared, but with a problem (see the packages below)"
             ;;
           workspace)
             req_bad=$((req_bad + 1))
@@ -347,7 +348,7 @@ render() {
             status="❌ required by kind $kind_name and not declared"
             ;;
         esac
-        kind_rows+=("| $(code "$kroot") | $kind_name | $(code "$pkg_name") | $status |")
+        req_rows[$kroot]+="| $(code "$pkg_name") | $status |"$'\n'
       done <<<"${required_of[$kind_name]}"
     done
     # a directory with CDK files that is not declared iac: declaring another kind must not dodge the IaC standard (K3)
@@ -355,10 +356,10 @@ render() {
       kr="$(longest_root "$cdir" "${kind_roots[@]}")"
       if [[ -z $kr ]]; then
         req_bad=$((req_bad + 1))
-        kind_rows+=("| $(code "$cdir") | (not declared) | — | ❌ undeclared iac root: it has CDK files and no declared root contains it |")
+        undeclared_rows+=("| $(code "$cdir") | (none) | ❌ undeclared iac root: it has CDK files and no declared root contains it |")
       elif [[ ${kind_of[$kr]} != iac ]]; then
         req_bad=$((req_bad + 1))
-        kind_rows+=("| $(code "$cdir") | ${kind_of[$kr]} (via $(code "$kr")) | — | ❌ undeclared iac root: it has CDK files and is not declared iac |")
+        undeclared_rows+=("| $(code "$cdir") | ${kind_of[$kr]} (via $(code "$kr")) | ❌ undeclared iac root: it has CDK files and is not declared iac |")
       fi
     done
   fi
@@ -442,38 +443,65 @@ render() {
     printf '| Platform | not available |\n'
   fi
   if ((kinds_mode)); then
+    # With root-kinds the block is organised by kind: one section per declared root, with what that kind requires and the packages that root
+    # declares. A kind the repository does not declare has no section at all (nothing is printed for what does not apply).
     shown=""
     for kroot in "${kind_roots[@]}"; do shown+="${shown:+, }$(code "$kroot") → ${kind_of[$kroot]}"; done
     printf '| Roots scanned | %s (%s roots, %s package.json%s) |\n\n' "$shown" "${#kind_roots[@]}" "$manifests" \
       "$( ((ignored > 0)) && printf ', %s outside every declared root, not counted' "$ignored" || true)"
-    printf '### Required by kind\n\n'
-    printf '| Root | Kind | Required package | Status |\n|---|---|---|---|\n'
-    printf '%s\n' "${kind_rows[@]}"
     if ((req_defined == 0)); then
-      printf '\n**n/a**: the kind(s) %s define no required packages, so there is nothing the standard asks of these roots yet (never a tick).\n' "$(code "$(join_by ', ' "${nodel_kinds[@]}")")"
+      printf '**n/a**: the kind(s) %s define no required packages, so there is nothing the standard asks of these roots yet (never a tick).\n\n' "$(code "$(join_by ', ' "${nodel_kinds[@]}")")"
     fi
-    printf '\n'
+    local sec_rows sec_guard sec_found sec_bad idx
+    for kroot in "${kind_roots[@]}"; do
+      kind_name="${kind_of[$kroot]}"
+      printf '### %s · %s\n\n' "$kind_name" "$(code "$kroot")"
+      if [[ -n ${no_pkg_kind[$kroot]:-} ]]; then
+        printf '➖ no packages are defined for this kind\n\n'
+      else
+        printf '**Required by this kind**\n\n| Required package | Status |\n|---|---|\n%s\n' "${req_rows[$kroot]}"
+      fi
+      sec_rows=() sec_guard=() sec_found=0 sec_bad=0
+      for idx in "${!rows[@]}"; do
+        [[ ${row_root[$idx]} == "$kroot" ]] || continue
+        sec_rows+=("${rows[$idx]}")
+        sec_found=$((sec_found + 1))
+        if [[ ${rows[$idx]} == *"| ❌ "* ]]; then sec_bad=$((sec_bad + 1)); fi
+      done
+      for idx in "${!guard_rows[@]}"; do
+        [[ ${guard_root[$idx]} == "$kroot" ]] && sec_guard+=("${guard_rows[$idx]}")
+      done
+      if ((sec_found > 0)); then
+        printf '**Packages declared in this root** (%s found, %s with a problem)\n\n' "$sec_found" "$sec_bad"
+        printf '| Package | Declared in | Version | Origin | Integrity (lockfile) | Exact | Status |\n|---|---|---|---|---|---|---|\n'
+        printf '%s\n\n' "${sec_rows[@]}"
+      fi
+      if ((${#sec_guard[@]} > 0)); then
+        printf '**Guardrails rules** (output of the installed package, offline)\n\n'
+        printf '| Package | Root | Rules | Rule ids |\n|---|---|---|---|\n'
+        printf '%s\n\n' "${sec_guard[@]}"
+      fi
+    done
+    if ((${#undeclared_rows[@]} > 0)); then
+      printf '### Undeclared IaC roots\n\n| Directory | Declared as | Status |\n|---|---|---|\n'
+      printf '%s\n\n' "${undeclared_rows[@]}"
+    fi
+    if ((declared > 0)); then printf 'The integrity is abbreviated; the full value is in the lockfile of the commit above.\n\n'; fi
   else
     printf '| Roots scanned | %s (%s package.json) |\n\n' "$(code "$(join_by ',' "${roots[@]}")")" "$manifests"
-  fi
-
-  if ((declared == 0)); then
-    if ((kinds_mode)); then
-      # the verdict is decided by the table above, not by this section: it must not read like one
-      printf '### Packages\n\nNone of the %s package.json file(s) of the declared roots declares a %s dependency.\n\n' "$manifests" "$(code '@nextep/*')"
-    else
+    if ((declared == 0)); then
       printf '### Packages\n\n**n/a**: none of the %s package.json file(s) declares a %s dependency, so there is no package evidence to show.\n\n' "$manifests" "$(code '@nextep/*')"
+    else
+      printf '### Packages (%s found, %s with a problem)\n\n' "$declared" "$bad"
+      printf '| Package | Declared in | Version | Origin | Integrity (lockfile) | Exact | Status |\n|---|---|---|---|---|---|---|\n'
+      printf '%s\n' "${rows[@]}"
+      printf '\nThe integrity is abbreviated; the full value is in the lockfile of the commit above.\n\n'
     fi
-  else
-    printf '### Packages (%s found, %s with a problem)\n\n' "$declared" "$bad"
-    printf '| Package | Declared in | Version | Origin | Integrity (lockfile) | Exact | Status |\n|---|---|---|---|---|---|---|\n'
-    printf '%s\n' "${rows[@]}"
-    printf '\nThe integrity is abbreviated; the full value is in the lockfile of the commit above.\n\n'
-  fi
-  if ((${#guard_rows[@]} > 0)); then
-    printf '### Guardrails rules (output of the installed package, offline)\n\n'
-    printf '| Package | Root | Rules | Rule ids |\n|---|---|---|---|\n'
-    printf '%s\n\n' "${guard_rows[@]}"
+    if ((${#guard_rows[@]} > 0)); then
+      printf '### Guardrails rules (output of the installed package, offline)\n\n'
+      printf '| Package | Root | Rules | Rule ids |\n|---|---|---|---|\n'
+      printf '%s\n\n' "${guard_rows[@]}"
+    fi
   fi
 
   printf '### Validations\n\n'

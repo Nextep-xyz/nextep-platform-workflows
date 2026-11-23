@@ -67,9 +67,12 @@ front_root() {
   run_evidence
   summary | grep -q 'packages evidence: ✅ VERIFIED'
   summary | grep -qF '| Roots scanned | `.` → frontend, `infra` → iac (2 roots, 2 package.json) |'
-  summary | grep -q '^### Required by kind'
-  summary | grep -qF '| `.` | frontend | — | ➖ no packages are defined for this kind |'
-  summary | grep -qF '| `infra` | iac | `@nextep/cdk-guardrails` | ✅ declared and resolved in the lockfile |'
+  summary | grep -qF '### frontend · `.`'
+  summary | grep -qF '### iac · `infra`'
+  summary | grep -A2 -F '### frontend · `.`' | grep -qF '➖ no packages are defined for this kind'
+  summary | grep -qF '| `@nextep/cdk-guardrails` | ✅ declared and resolved in the lockfile |'
+  # the frontend root declares nothing: no packages table for it, only the iac root has one
+  [ "$(grep -c 'Packages declared in this root' "$GITHUB_STEP_SUMMARY")" -eq 1 ]
   # the package is listed once, under infra (the root `.` contains infra/package.json but does not own it)
   [ "$(grep -c '^| `@nextep/cdk-guardrails` | `infra/package.json`' "$GITHUB_STEP_SUMMARY")" -eq 1 ]
   summary | grep -qF '| `@nextep/cdk-guardrails` | `infra` | 2 |'
@@ -83,6 +86,7 @@ front_root() {
   INSTALL_DIRS='.,infra' run_evidence
   summary | grep -qF '| Roots scanned | `.,infra` (3 package.json) |'
   absent 'Required by kind' "$GITHUB_STEP_SUMMARY"
+  absent 'Packages declared in this root' "$GITHUB_STEP_SUMMARY"
 }
 
 # --- K4: empty means unchanged -----------------------------------------------------------------------------------------------------------
@@ -93,6 +97,7 @@ front_root() {
   summary | grep -q 'packages evidence: ✅ VERIFIED'
   summary | grep -qF '| Roots scanned | `.` (1 package.json) |'
   absent 'Required by kind' "$GITHUB_STEP_SUMMARY"
+  absent 'by this kind' "$GITHUB_STEP_SUMMARY"
   absent '→' "$GITHUB_STEP_SUMMARY"
 }
 
@@ -106,7 +111,7 @@ front_root() {
   export ROOT_KINDS='{".":"frontend","infra":"iac"}' INSTALL_DIRS='.,infra'
   run_evidence
   summary | grep -q 'packages evidence: ❌ FAILED'
-  summary | grep -qF '| `infra` | iac | `@nextep/cdk-guardrails` | ❌ required by kind iac and not declared |'
+  summary | grep -qF '| `@nextep/cdk-guardrails` | ❌ required by kind iac and not declared |'
   absent 'VERIFIED' "$GITHUB_STEP_SUMMARY"
   absent 'n/a' "$GITHUB_STEP_SUMMARY"
   absent '✅ passed' "$GITHUB_STEP_SUMMARY"
@@ -118,7 +123,7 @@ front_root() {
   pass_all
   ROOT_KINDS='{".":"frontend","infra":"iac"}' run_evidence
   summary | grep -q 'packages evidence: ❌ FAILED'
-  summary | grep -qF '| `infra` | iac | `@nextep/cdk-guardrails` | ❌ required by kind iac and not declared |'
+  summary | grep -qF '| `@nextep/cdk-guardrails` | ❌ required by kind iac and not declared |'
 }
 
 @test "K5: kinds that require nothing are n/a with their reason, never a tick, even with green validations and a non-required @nextep package evidenced" {
@@ -167,7 +172,7 @@ front_root() {
   pass_all
   ROOT_KINDS='{"infra":"iac"}' run_evidence
   summary | grep -q 'packages evidence: ❌ FAILED'
-  summary | grep -qF 'required by kind iac and declared, but with a problem (see Packages)'
+  summary | grep -qF 'required by kind iac and declared, but with a problem (see the packages below)'
   summary | grep -qF 'not an exact version'
 }
 
@@ -199,7 +204,7 @@ front_root() {
   pass_all
   ROOT_KINDS='{".":"frontend","infra":"frontend","web":"frontend"}' INSTALL_DIRS='.,infra,web' run_evidence
   summary | grep -q 'packages evidence: ❌ FAILED'
-  summary | grep -qF '| `infra` | frontend (via `infra`) | — | ❌ undeclared iac root: it has CDK files and is not declared iac |'
+  summary | grep -qF '| `infra` | frontend (via `infra`) | ❌ undeclared iac root: it has CDK files and is not declared iac |'
   absent 'VERIFIED' "$GITHUB_STEP_SUMMARY"
 }
 
@@ -210,7 +215,7 @@ front_root() {
   pass_all
   ROOT_KINDS='{".":"backend"}' run_evidence
   summary | grep -q 'packages evidence: ❌ FAILED'
-  summary | grep -qF '| `infra` | backend (via `.`) | — | ❌ undeclared iac root'
+  summary | grep -qF '| `infra` | backend (via `.`) | ❌ undeclared iac root'
 }
 
 @test "K3: an IaC directory that no declared root contains is red too (forgetting to declare infra is the case this gate exists for)" {
@@ -220,7 +225,7 @@ front_root() {
   pass_all
   ROOT_KINDS='{"app":"frontend"}' run_evidence
   summary | grep -q 'packages evidence: ❌ FAILED'
-  summary | grep -qF '| `infra` | (not declared) | — | ❌ undeclared iac root: it has CDK files and no declared root contains it |'
+  summary | grep -qF '| `infra` | (none) | ❌ undeclared iac root: it has CDK files and no declared root contains it |'
 }
 
 @test "K3: CDK files below a root declared iac are fine (the most specific root decides), and cdk.out and node_modules are not looked at" {
@@ -263,7 +268,7 @@ front_root() {
   pass_all
   ROOT_KINDS='{"infra":"iac"}' INSTALL_DIRS='.' run_evidence
   summary | grep -q 'packages evidence: ✅ VERIFIED'
-  summary | grep -qF '| `infra` | iac | `@nextep/cdk-guardrails` | ✅ declared and resolved in the lockfile |'
+  summary | grep -qF '| `@nextep/cdk-guardrails` | ✅ declared and resolved in the lockfile |'
 }
 
 @test "a Python root declared backend is n/a and says no packages are defined for the kind" {
@@ -271,7 +276,8 @@ front_root() {
   pass_all
   ROOT_KINDS='{".":"backend"}' INSTALL_DIRS='.' run_evidence
   summary | grep -q 'packages evidence: n/a'
-  summary | grep -qF '| `.` | backend | — | ➖ no packages are defined for this kind |'
+  summary | grep -qF '### backend · `.`'
+  summary | grep -qF '➖ no packages are defined for this kind'
 }
 
 # --- K7: what comes from the repository is neutralised -----------------------------------------------------------------------------------
@@ -317,4 +323,57 @@ front_root() {
   pass_all
   PACKAGE_MANAGER=npm ROOT_KINDS='{"infra":"iac"}' run_evidence
   summary | grep -q 'packages evidence: ✅ VERIFIED'
+}
+
+# --- the layout: one section per declared kind, the packages that passed under each, nothing for what does not apply ------------------------
+# section_of <heading fragment>: the lines of the section whose heading contains the fragment, up to the next heading
+section_of() { summary | awk -v h="$1" 'index($0, "### ") == 1 { on = (index($0, h) > 0) } on'; }
+
+@test "layout: a backend repository shows its backend root and its iac root, each with its own packages, and no mention of a kind it does not declare" {
+  mkdir -p api
+  printf '{ "name": "api", "dependencies": { "@nextep/gates": "%s" } }\n' "$URL" >api/package.json
+  cp "$FX/pnpm/pnpm-lock.yaml" api/
+  sed -i 's#@nextep/cdk-guardrails#@nextep/gates#g' api/pnpm-lock.yaml
+  iac_root infra
+  pass_all
+  ROOT_KINDS='{"api":"backend","infra":"iac"}' run_evidence
+  summary | grep -q 'packages evidence: ✅ VERIFIED'
+  # the kinds the repository declares, in that order (by path), and only those
+  summary | grep -n '^### ' | grep -qF '### backend · `api`'
+  summary | grep -n '^### ' | grep -qF '### iac · `infra`'
+  absent 'frontend' "$GITHUB_STEP_SUMMARY"
+  absent '### platform' "$GITHUB_STEP_SUMMARY"
+  # each package under the kind of the root that declares it
+  section_of '### iac · `infra`' | grep -qF '`@nextep/cdk-guardrails`'
+  section_of '### iac · `infra`' | grep -qF '| ✅ declared and resolved in the lockfile |'
+  section_of '### iac · `infra`' | grep -qF '**Guardrails rules**'
+  [[ "$(section_of '### iac · `infra`')" != *"@nextep/gates"* ]]
+  section_of '### backend · `api`' | grep -qF '`@nextep/gates`'
+  section_of '### backend · `api`' | grep -qF '➖ no packages are defined for this kind'
+  [[ "$(section_of '### backend · `api`')" != *'`@nextep/cdk-guardrails`'* ]]
+  # a package nobody asked for on that kind is information (its own row), never the evidence of the kind
+  section_of '### backend · `api`' | grep -qF '| ✅ |'
+}
+
+@test "layout: the validations come after the sections, and a backend with nothing declared prints no packages table" {
+  front_root .
+  iac_root infra
+  pass_all
+  ROOT_KINDS='{".":"backend","infra":"iac"}' INSTALL_DIRS='.,infra' run_evidence
+  [ "$(summary | grep -c '^### ')" -eq 3 ]
+  summary | grep -n '^### ' | tail -1 | grep -qF '### Validations'
+  [[ "$(section_of '### backend · `.`')" != *"Packages declared in this root"* ]]
+  section_of '### iac · `infra`' | grep -qF 'Packages declared in this root** (1 found, 0 with a problem)'
+}
+
+@test "layout: the problem of a root is counted in its own section, not in the others" {
+  mkdir -p api
+  printf '{ "name": "api", "dependencies": { "@nextep/gates": "^1.0.0" } }\n' >api/package.json
+  printf '%s' "$LOCK_EMPTY" >api/pnpm-lock.yaml
+  iac_root infra
+  pass_all
+  ROOT_KINDS='{"api":"backend","infra":"iac"}' run_evidence
+  summary | grep -q 'packages evidence: ❌ FAILED'
+  section_of '### backend · `api`' | grep -qF '(1 found, 1 with a problem)'
+  section_of '### iac · `infra`' | grep -qF '(1 found, 0 with a problem)'
 }
