@@ -42,18 +42,18 @@ jobs:
       # Only root-kinds is checked in this flow: a caller written wrong fails here, before anything is installed (it is a defect of the
       # configuration, not something to report).
       - name: Validate the inputs
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@80f41a6cb4f779062ab26749d1b30bb3a1b08413
         with:
           flow: node-ci
           inputs-json: ${{ toJSON(inputs) }}
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@80f41a6cb4f779062ab26749d1b30bb3a1b08413
         with:
           package-manager: pnpm
           node-version: ${{ inputs.node-version }}
       - name: Test
         id: test
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@80f41a6cb4f779062ab26749d1b30bb3a1b08413
         with:
           command: test
         env:
@@ -62,13 +62,13 @@ jobs:
           GATE_FORK_PR: ${{ github.event.pull_request.head.repo.fork == true && 'true' || 'false' }}
       - name: Typecheck
         id: typecheck
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/node-ci@80f41a6cb4f779062ab26749d1b30bb3a1b08413
         with:
           command: typecheck
       # Reporting only: it runs even when the validation failed (always()), reads the REAL outcome of the steps above and never fails the job.
       - name: Packages evidence
         if: ${{ always() && inputs.packages-evidence }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@80f41a6cb4f779062ab26749d1b30bb3a1b08413
         with:
           package-manager: pnpm
           root-kinds: ${{ inputs.root-kinds }}
