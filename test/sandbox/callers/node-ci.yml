@@ -14,6 +14,9 @@ jobs:
     uses: example-org/nextep-platform-workflows/.github/workflows/lego-node-ci.yml@v1
     with:
       node-version: "22"
+      # Optional: the kind of each root, so the packages evidence reports what the kind requires (docs/runbook.md section 11.6). A
+      # repository of shared libraries or internal tooling declares `platform`; a malformed value fails the job.
+      root-kinds: '{".":"platform"}'
     # Optional: the list of internal names for the public-names gate of a public repository. A fork pull request receives no secrets; the
     # workflow derives GATE_FORK_PR from the event so the gate does not fail for a secret that fork can never have. Name it, never `inherit`.
     secrets:

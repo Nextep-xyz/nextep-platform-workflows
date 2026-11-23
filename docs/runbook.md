@@ -501,3 +501,29 @@ Everything printed that comes from the repository (names, specs, URLs) goes insi
 - Only the gate job of `lego-aws-cicd` carries it; `lego-aws-environment-deploy` (its own gate and the deploys) does not.
 - A screenshot of a summary is evidence of what the run printed, not a signed attestation of the packages.
 - **Not exercised on GitHub.** Verified with fixtures that are the real output of `pnpm` 10 (lockfile v9) and `npm` 9 for a tarball dependency, a fake `nextep-guardrails`, and the gates in red. Open: that `github.job_workflow_ref` inside a composite called from a reusable workflow carries the reusable's ref; that `yq` (mikefarah v4) is on `ubuntu-latest` as the script assumes; the rendering of the block in the run summary; and the real output format of `nextep-guardrails --list-rules` (the parser takes the first token of each line as the rule id and ignores lines that are not shaped like one).
+
+### 11.6 Declaring the kind of each root (`root-kinds`, not released yet: additive, a minor version)
+
+Without it the block only **discovers** what the repository declares, so it cannot tell "this kind of repository needs no package" from "someone forgot the one the standard asks for", and a repository that is an app **and** a CDK app (`install-dirs: ".,infra"`) is treated as one thing. `root-kinds` is an optional input of `lego-node-ci` and `lego-aws-cicd`: a JSON object in a string, as `branch-map`, that gives each root its kind.
+
+```yaml
+jobs:
+  cicd:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@v1
+    with:
+      install-dirs: ".,infra"
+      root-kinds: '{".":"backend","infra":"iac"}'
+```
+
+- **Keys** are relative paths with the rules of `install-dirs` (no `..`, no absolute path, no backslash, no glob, no trailing `/`); `.` is always valid (a Python repository does not list it in `install-dirs`). **Values** are a closed vocabulary: `iac`, `backend`, `frontend`, `platform` (internal tooling). Anything else, or a value that is not a JSON object, **fails the job** naming the input: it is a defect of the configuration, not something to report. Convention: a backend or a frontend declares **two** roots, its own and `infra` as `iac`.
+- **Policy**: `contracts/package-profiles.yml` lists, per kind, the `@nextep/*` packages that are required. It travels with the tag of the platform (no network). Today only `iac` requires one, `@nextep/cdk-guardrails`; `backend`, `frontend` and `platform` say `required: []` **on purpose** (no package is defined for them yet, and the block says so). Adding a package to a list changes the verdict of **every** consumer of that kind: a reviewed change, with evidence of adoption.
+- **What changes in the block**: a **Required by kind** table (one row per root and required package), each `package.json` belongs to the **most specific declared root** (`infra/package.json` is `infra`, not `.`, so nothing is counted twice) and one outside every declared root is not counted (the header says how many). A directory with `cdk.json` or `aws-cdk-lib` that is not declared `iac` is red as an **undeclared iac root**: declaring `frontend` does not dodge the IaC standard.
+- **Verdict**: `❌ FAILED` if a required package is missing, declared with a problem, only an in-repo package or not installed, or if an IaC root is undeclared, plus every red of section 11.1. `✅ VERIFIED` only with every required package evidenced and everything else green. When **every** declared kind requires nothing, the headline is `n/a` with the reason (`kind(s) frontend define no required packages`), never a tick, even if the repository declares a `@nextep/*` package nobody asked for. A missing required package **marks the block red; the job still goes on** (the mode that fails the build is a separate decision).
+- **Empty (the default)** is the evidence of v1.7.0 byte for byte: a caller that does not use it changes nothing.
+
+| You see | Meaning | Action |
+|---|---|---|
+| `input 'root-kinds' ...` as an error of the job | the value is not a JSON object, a root is not a valid path or a kind is not in the vocabulary | Fix the caller |
+| `required by kind iac and not declared` | the root has no `@nextep/cdk-guardrails` in any of its manifests | Add the dependency (Release URL) and reinstall |
+| `undeclared iac root` | a directory has CDK files and is not declared `iac` | Declare it `iac` (or the root that contains it) in `root-kinds` |
+| `not installed: <root>/node_modules does not exist` | the package is declared but the root was not installed | Add the root to `install-dirs` |

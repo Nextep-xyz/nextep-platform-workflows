@@ -1,0 +1,20 @@
+# Policy of the packages evidence (docs/runbook.md section 11.6): which @nextep/* packages each kind of root must declare.
+# A caller declares the kind of every root with the input `root-kinds`; the evidence block then reports what the kind requires against what the
+# repository has. It travels with the tag of this repository (no network, no registry): changing a list changes the verdict of EVERY consumer of
+# that kind, so it is a reviewed change with the evidence of adoption behind it, never a quiet edit.
+# Every kind says what it requires. `required: []` is a statement ("nothing is defined for this kind yet"), not an omission: the gate RK-PROFILES
+# rejects a kind without the key. The vocabulary is closed (iac, backend, frontend, platform) and also lives in scripts/lib/root-kinds.sh and in
+# the description of the input; the gate crosses the three.
+kinds:
+  # Infrastructure as code (a CDK app). The one kind with a required package today.
+  iac:
+    required:
+      - "@nextep/cdk-guardrails"
+  # Application kinds: no package is defined for them yet. A package joins a list only when it exists and has been adopted.
+  backend:
+    required: []
+  frontend:
+    required: []
+  # Internal tooling: pipelines, shared libraries, scripts. Nothing is defined either.
+  platform:
+    required: []

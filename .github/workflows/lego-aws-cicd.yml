@@ -230,6 +230,10 @@ on:
         description: "Write the evidence of the @nextep/* packages (table of versions, origin, integrity, guardrails rules and the real result of the quality gate) to the summary of the gate job. It reads outcomes, runs no caller command and never fails the job."
         type: boolean
         default: true
+      root-kinds:
+        description: "The kind of each root of the repository, as a JSON object {\"<root>\": \"<kind>\"}, for example {\".\":\"backend\",\"infra\":\"iac\"}. Kinds (closed vocabulary): iac, backend, frontend, platform. The packages evidence then reports what each kind requires (contracts/package-profiles.yml) against what the repository declares; a required package that is missing marks the block red and never fails the job. Empty keeps the evidence of what the repository declares. A malformed value fails the job."
+        type: string
+        default: ""
 
 jobs:
   quality-and-security-gate:
@@ -302,6 +306,7 @@ jobs:
         with:
           install-dirs: ${{ inputs.install-dirs }}
           package-manager: ${{ inputs.package-manager }}
+          root-kinds: ${{ inputs.root-kinds }}
           validations: |
             Quality gate (lint and tests)=${{ steps.quality-gate.outcome }}
       - name: Stamp the end

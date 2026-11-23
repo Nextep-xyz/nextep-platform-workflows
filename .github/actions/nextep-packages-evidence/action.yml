@@ -9,6 +9,10 @@ inputs:
     description: npm or pnpm.
     required: false
     default: pnpm
+  root-kinds:
+    description: "The kind of each root, as a JSON object {\"<root>\": \"<kind>\"} (already validated by the workflow). Empty keeps the evidence of what the repository declares. Never a secret: it is a map of paths to kinds."
+    required: false
+    default: ""
   validations:
     description: "One `<label>=<outcome>` per line, where the outcome is `steps.<id>.outcome` of the validation step. A fixed value defeats the purpose (gate PE-OUTCOME)."
     required: true
@@ -23,6 +27,7 @@ runs:
         SCRIPTS: ${{ github.action_path }}/../../../scripts
         INSTALL_DIRS: ${{ inputs.install-dirs }}
         PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        ROOT_KINDS: ${{ inputs.root-kinds }}
         VALIDATIONS: ${{ inputs.validations }}
         JOB_WORKFLOW_REF: ${{ github.job_workflow_ref }}
       run: |

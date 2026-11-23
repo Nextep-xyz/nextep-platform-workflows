@@ -17,7 +17,7 @@ PE_REQUIRED=(lego-node-ci lego-aws-cicd)
 # The composites whose steps ARE the validations of a job. A step of the job that uses one of them must be reported by the evidence step.
 PE_VALIDATION_COMPOSITES=(node-ci quality-gate)
 # The environment the composite may hand to its script (SCRIPTS is the path of the scripts; the rest are the data of the block).
-PE_COMPOSITE_ENV=(SCRIPTS INSTALL_DIRS PACKAGE_MANAGER VALIDATIONS JOB_WORKFLOW_REF)
+PE_COMPOSITE_ENV=(SCRIPTS INSTALL_DIRS PACKAGE_MANAGER ROOT_KINDS VALIDATIONS JOB_WORKFLOW_REF)
 PE_COMPOSITE=.github/actions/nextep-packages-evidence/action.yml
 PE_SCRIPT=scripts/packages-evidence.sh
 
@@ -167,11 +167,30 @@ composite_of() { sed -nE 's#.*/\.github/actions/([a-z0-9-]+)@.*#\1#p' <<<"$1"; }
     if [[ -f $GATES_ROOT/$contract ]]; then
       gate_json "$contract" | jq -e '.inputs["packages-evidence"] | (.type == "boolean" and .default == true)' >/dev/null ||
         gate_violation "$contract" "input 'packages-evidence' must be a boolean with default true (as in the workflow)"
+      gate_json "$contract" | jq -e '.inputs["root-kinds"] | (.type == "string" and .default == "")' >/dev/null ||
+        gate_violation "$contract" "input 'root-kinds' must be a string with default \"\" (as in the workflow): empty keeps the evidence of v1.7.0"
     else
       gate_violation "$wf" "has no contract ($contract)"
     fi
+    # root-kinds (K6): optional, a string that defaults to empty, and it reaches the composite as-is
+    gate_json "$wf" | jq -e '.on.workflow_call.inputs["root-kinds"] | (.type == "string" and .default == "" and ((.required // false) == false))' >/dev/null ||
+      gate_violation "$wf" "input 'root-kinds' must be a string, not required, with default \"\" (empty keeps the evidence of v1.7.0)"
+    while IFS= read -r w; do
+      [[ -n $w ]] || continue
+      jq -e '.step.with["root-kinds"] == "${{ inputs.root-kinds }}"' <<<"$w" >/dev/null ||
+        gate_violation "$wf" "the evidence step of job '$(jq -r .job <<<"$w")' must pass 'root-kinds: \${{ inputs.root-kinds }}' to the composite (the input would be declared and ignored)"
+    done < <(wired_steps "$(gate_json "$wf")")
   done
   ((found > 0)) || gate_violation ".github/workflows" "PE-INPUT found no workflow with the evidence (a gate that finds nothing proves nothing)"
+  # the composite declares the input and wires it to the variable of the script (the two names are declared here and in the script)
+  if [[ -f $GATES_ROOT/$PE_COMPOSITE ]]; then
+    gate_json "$PE_COMPOSITE" | jq -e '.inputs["root-kinds"] | (.default == "" and ((.required // false) == false))' >/dev/null ||
+      gate_violation "$PE_COMPOSITE" "must declare the input 'root-kinds' (not required, default \"\")"
+    gate_json "$PE_COMPOSITE" | jq -e '[.runs.steps[].env.ROOT_KINDS // empty] | any(. == "${{ inputs.root-kinds }}")' >/dev/null ||
+      gate_violation "$PE_COMPOSITE" "must hand the input to the script as ROOT_KINDS: \${{ inputs.root-kinds }}"
+    code_lines "$PE_SCRIPT" | grep -q 'ROOT_KINDS' ||
+      gate_violation "$PE_SCRIPT" "never reads ROOT_KINDS, which the composite hands over"
+  fi
   gate_finish PE-INPUT
 }
 

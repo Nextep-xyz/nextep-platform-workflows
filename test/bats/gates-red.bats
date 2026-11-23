@@ -37,7 +37,7 @@ YAML
 
 @test "every workflow-driven gate fails with '0 subjects' when no lego-aws workflow exists" {
   local g
-  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats no-static-registry-token.bats package-publish-flow.bats cloud-free.bats packages-evidence.bats; do
+  for g in permissions.bats deploy-lock.bats runner.bats dora-telemetry.bats contract-sync.bats rollback-and-event-guards.bats no-static-registry-token.bats package-publish-flow.bats cloud-free.bats packages-evidence.bats root-kinds.bats; do
     run bats "$REPO_ROOT/test/gates/$g"
     [ "$status" -ne 0 ]
     [[ "$output" == *"0 subjects discovered"* ]] || { echo "$g: $output"; return 1; }
@@ -943,11 +943,11 @@ YAML
 # cf_fixture: copies the real files of the family into $FX, so each test breaks ONE thing in a tree that is otherwise the real one.
 cf_fixture() {
   rm -rf "$FX/.github/workflows/lego-node-ci.yml" "$FX/.github/workflows/lego-package-release.yml" "$FX/.github/actions/node-ci" "$FX/.github/actions/nextep-packages-evidence" \
-    "$FX/.github/actions/package-release-check" "$FX/.github/actions/package-release-publish" "$FX/test/sandbox"
+    "$FX/.github/actions/package-release-check" "$FX/.github/actions/package-release-publish" "$FX/.github/actions/validate-inputs" "$FX/test/sandbox"
   mkdir -p "$FX/test/sandbox/callers" "$FX/.github/actions"
   cp "$REPO_ROOT"/.github/workflows/lego-node-ci.yml "$REPO_ROOT"/.github/workflows/lego-package-release.yml "$FX/.github/workflows/"
   cp "$REPO_ROOT"/contracts/lego-node-ci.contract.yml "$REPO_ROOT"/contracts/lego-package-release.contract.yml "$FX/contracts/"
-  cp -r "$REPO_ROOT"/.github/actions/node-ci "$REPO_ROOT"/.github/actions/nextep-packages-evidence "$REPO_ROOT"/.github/actions/package-release-check "$REPO_ROOT"/.github/actions/package-release-publish "$REPO_ROOT"/.github/actions/setup-project "$FX/.github/actions/"
+  cp -r "$REPO_ROOT"/.github/actions/node-ci "$REPO_ROOT"/.github/actions/nextep-packages-evidence "$REPO_ROOT"/.github/actions/package-release-check "$REPO_ROOT"/.github/actions/package-release-publish "$REPO_ROOT"/.github/actions/setup-project "$REPO_ROOT"/.github/actions/validate-inputs "$FX/.github/actions/"
   cp "$REPO_ROOT"/scripts/tarball-release.sh "$REPO_ROOT"/scripts/packages-evidence.sh "$FX/scripts/"
   cp "$REPO_ROOT"/test/sandbox/callers/node-ci.yml "$REPO_ROOT"/test/sandbox/callers/package-release.yml "$FX/test/sandbox/callers/"
   NODECI="$FX/.github/workflows/lego-node-ci.yml"
@@ -1316,4 +1316,124 @@ pe_fixture() {
   pe_fixture
   yq -i '.runs.steps += [{"name": "extra", "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "if": "always()"}]' "$PEACT"
   red packages-evidence.bats "nextep-packages-evidence/action.yml: uses another action"
+}
+
+@test "PE-INPUT red (root-kinds): a default that is not empty, a contract that drifts, a step that does not pass it and a composite that ignores it are named" {
+  pe_fixture
+  yq -i '.on.workflow_call.inputs."root-kinds".default = "{}"' "$NODECI"
+  red packages-evidence.bats "lego-node-ci.yml: input 'root-kinds' must be a string, not required, with default"
+
+  pe_fixture
+  yq -i '.inputs."root-kinds".type = "boolean"' "$FX/contracts/lego-aws-cicd.contract.yml"
+  red packages-evidence.bats "contracts/lego-aws-cicd.contract.yml: input 'root-kinds' must be a string with default"
+
+  pe_fixture
+  yq -i 'del('"$PE_STEP_CICD"'.with."root-kinds")' "$CICD"
+  red packages-evidence.bats "lego-aws-cicd.yml: the evidence step of job 'quality-and-security-gate' must pass 'root-kinds"
+
+  pe_fixture
+  yq -i 'del(.runs.steps[0].env.ROOT_KINDS)' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: must hand the input to the script as ROOT_KINDS"
+
+  pe_fixture
+  yq -i 'del(.inputs."root-kinds")' "$PEACT"
+  red packages-evidence.bats "nextep-packages-evidence/action.yml: must declare the input 'root-kinds'"
+
+  pe_fixture
+  sed -i 's/ROOT_KINDS/ROOT_KIND_MAP/g' "$PESCRIPT"
+  red packages-evidence.bats "scripts/packages-evidence.sh: never reads ROOT_KINDS"
+}
+
+# ---- root-kinds (RK-*) ---------------------------------------------------------------------------------------------------------------
+# rk_fixture: the real files of the policy, the vocabulary and the two workflows that declare the input.
+rk_fixture() {
+  pe_fixture
+  cp "$REPO_ROOT"/contracts/package-profiles.yml "$FX/contracts/"
+  mkdir -p "$FX/scripts/lib"
+  cp "$REPO_ROOT"/scripts/lib/root-kinds.sh "$FX/scripts/lib/"
+  PROFILES="$FX/contracts/package-profiles.yml"
+  VOCAB="$FX/scripts/lib/root-kinds.sh"
+  VAL_STEP='.jobs.ci.steps[] | select(.name == "Validate the inputs")'
+}
+
+@test "the RK fixture is clean: every RK gate passes on the real files of the policy and the workflows" {
+  rk_fixture
+  run bats "$REPO_ROOT/test/gates/root-kinds.bats"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "RK-PROFILES red: a kind outside the vocabulary, a kind without a policy, a required that is not a list, a bad or repeated name and a missing file are named" {
+  rk_fixture
+  yq -i '.kinds.library.required = []' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: declares the kind 'library', which is not in the vocabulary of scripts/lib/root-kinds.sh"
+
+  rk_fixture
+  yq -i 'del(.kinds.platform)' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: has no entry for the kind 'platform' of the vocabulary"
+
+  rk_fixture
+  yq -i 'del(.kinds.backend.required)' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: kind 'backend' must declare 'required' as an explicit list of strings"
+
+  rk_fixture
+  yq -i '.kinds.iac.required += ["cdk-guardrails"]' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: kind 'iac': 'cdk-guardrails' is not a @nextep/* package name"
+
+  rk_fixture
+  yq -i '.kinds.iac.required += ["@nextep/cdk-guardrails"]' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: kind 'iac' lists '@nextep/cdk-guardrails' more than once"
+
+  rk_fixture
+  yq -i '.kinds = {}' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: must declare 'kinds' as an object with at least one kind"
+
+  rk_fixture
+  rm "$PROFILES"
+  red root-kinds.bats "0 subjects discovered by 'find contracts -maxdepth 1 -type f -name package-profiles.yml'"
+}
+
+@test "RK-PROFILES red: the vocabulary of the library and the one promised in the input description drift from the policy and are named" {
+  rk_fixture
+  sed -i 's/^ROOT_KINDS_VOCAB=(iac backend frontend platform)/ROOT_KINDS_VOCAB=(iac backend frontend tooling)/' "$VOCAB"
+  red root-kinds.bats "contracts/package-profiles.yml: has no entry for the kind 'tooling' of the vocabulary"
+  [[ "$output" == *"declares the kind 'platform', which is not in the vocabulary of scripts/lib/root-kinds.sh"* ]]
+
+  rk_fixture
+  sed -i 's/^ROOT_KINDS_VOCAB=.*$/# no vocabulary here/' "$VOCAB"
+  red root-kinds.bats "scripts/lib/root-kinds.sh: declares no kind"
+
+  rk_fixture
+  yq -i '.on.workflow_call.inputs."root-kinds".description = "The kind of each root. Kinds (closed vocabulary): iac, backend, frontend."' "$NODECI"
+  red root-kinds.bats "lego-node-ci.yml: the description of input 'root-kinds' must say 'Kinds (closed vocabulary): backend, frontend, iac, platform.'"
+
+  rk_fixture
+  yq -i '.on.workflow_call.inputs."root-kinds".description = "The kind of each root."' "$CICD"
+  red root-kinds.bats "lego-aws-cicd.yml: the description of input 'root-kinds' must say"
+
+  rk_fixture
+  yq -i 'del(.on.workflow_call.inputs."root-kinds")' "$NODECI"
+  yq -i 'del(.on.workflow_call.inputs."root-kinds")' "$CICD"
+  red root-kinds.bats ".github/workflows: no workflow declares the input 'root-kinds'"
+}
+
+@test "RK-VALIDATE red: no validation, the wrong flow, a validation that runs after the evidence and one that does not receive the inputs are named" {
+  rk_fixture
+  yq -i 'del('"$VAL_STEP"')' "$NODECI"
+  red root-kinds.bats "lego-node-ci.yml: job 'ci' hands root-kinds to the packages evidence but never calls validate-inputs"
+
+  rk_fixture
+  yq -i '('"$VAL_STEP"').with.flow = "environment-deploy"' "$NODECI"
+  red root-kinds.bats "lego-node-ci.yml: job 'ci': validate-inputs runs with flow 'environment-deploy'"
+
+  rk_fixture
+  yq -i '.jobs.ci.steps |= ([.[] | select(.name != "Validate the inputs")] + [.[] | select(.name == "Validate the inputs")])' "$NODECI"
+  red root-kinds.bats "lego-node-ci.yml: job 'ci' validates the inputs AFTER the packages evidence has used root-kinds"
+
+  rk_fixture
+  yq -i '('"$VAL_STEP"').with."inputs-json" = "{}"' "$NODECI"
+  red root-kinds.bats "lego-node-ci.yml: job 'ci': validate-inputs must receive 'inputs-json:"
+
+  rk_fixture
+  yq -i 'del(.jobs["quality-and-security-gate"].steps[] | select(.name == "Validate the inputs"))' "$CICD"
+  red root-kinds.bats "lego-aws-cicd.yml: job 'quality-and-security-gate' hands root-kinds to the packages evidence but never calls validate-inputs"
 }

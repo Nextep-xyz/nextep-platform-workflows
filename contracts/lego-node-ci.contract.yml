@@ -11,6 +11,10 @@ inputs:
   packages-evidence:
     type: boolean
     default: true
+  # the kind of each root (docs/runbook.md section 11.6); empty keeps the evidence of v1.7.0
+  root-kinds:
+    type: string
+    default: ""
 secrets:
   INTERNAL_DENYLIST:
     required: false

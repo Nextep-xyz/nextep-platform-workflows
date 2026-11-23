@@ -18,6 +18,10 @@ on:
         description: "Write the evidence of the @nextep/* packages (table of versions, origin, integrity, guardrails rules and the real result of the validations) to the summary of the run. It reads outcomes, runs no caller command and never fails the job."
         type: boolean
         default: true
+      root-kinds:
+        description: "The kind of each root of the repository, as a JSON object {\"<root>\": \"<kind>\"}, for example {\".\":\"frontend\",\"infra\":\"iac\"}. Kinds (closed vocabulary): iac, backend, frontend, platform. The packages evidence then reports what each kind requires (contracts/package-profiles.yml) against what the repository declares; a required package that is missing marks the block red and never fails the job. Empty keeps the evidence of what the repository declares. A malformed value fails the job."
+        type: string
+        default: ""
     secrets:
       INTERNAL_DENYLIST:
         description: "Optional list of internal names (newline or comma separated) for the public-names gate. It only reaches the env: of the test step."
@@ -35,6 +39,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Only root-kinds is checked in this flow: a caller written wrong fails here, before anything is installed (it is a defect of the
+      # configuration, not something to report).
+      - name: Validate the inputs
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@main
+        with:
+          flow: node-ci
+          inputs-json: ${{ toJSON(inputs) }}
       - name: Set up the project
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
         with:
@@ -60,6 +71,7 @@ jobs:
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@main
         with:
           package-manager: pnpm
+          root-kinds: ${{ inputs.root-kinds }}
           validations: |
             Tests (pnpm test)=${{ steps.test.outcome }}
             Typecheck (pnpm typecheck)=${{ steps.typecheck.outcome }}

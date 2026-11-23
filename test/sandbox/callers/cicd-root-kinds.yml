@@ -1,0 +1,20 @@
+# Fictional caller (project "shop"): an API repository whose root is a backend and whose `infra/` directory is a CDK app. `root-kinds` declares
+# the kind of each root, so the packages evidence reports what the kind REQUIRES (today only `iac` requires a package, @nextep/cdk-guardrails)
+# instead of only what the repository declares. A malformed value fails the job; a missing required package marks the block red and never
+# fails the job (docs/runbook.md section 11.6). Every repository that is an app and a CDK app declares TWO roots, as here.
+name: cicd
+on:
+  push:
+    branches: [develop]
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@v1
+    with:
+      project: shop
+      environment: dev
+      compute: lambda
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      install-dirs: ".,infra"
+      root-kinds: '{".":"backend","infra":"iac"}'
+      deploy-command: pnpm --filter infra run deploy:ci

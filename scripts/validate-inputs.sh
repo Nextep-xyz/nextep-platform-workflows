@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Validates the inputs of a lego-aws-* workflow BEFORE anything runs. Reports every problem, not only the first.
-#   validate-inputs.sh <cicd|environment-deploy>
+#   validate-inputs.sh <cicd|environment-deploy|node-ci>
 # Inputs arrive as INPUT_<NAME> (dashes -> underscores). Also: EVENT_NAME (github.event_name, G26) and
 # REF_NAME (github.ref_name, G21), both passed through env: by the caller.
+# The flow node-ci is the one lego-node-ci uses: that workflow has none of the deploy inputs, so only root-kinds is checked there.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/common.sh
@@ -17,13 +18,38 @@ if [[ -n ${INPUTS_JSON:-} ]]; then
   done < <(jq -r 'keys[]' <<<"$INPUTS_JSON")
 fi
 
-flow="${1:?usage: validate-inputs.sh <cicd|environment-deploy>}"
-[[ $flow == cicd || $flow == environment-deploy ]] || die "validate-inputs: unknown flow '$flow'"
+flow="${1:?usage: validate-inputs.sh <cicd|environment-deploy|node-ci>}"
+[[ $flow == cicd || $flow == environment-deploy || $flow == node-ci ]] || die "validate-inputs: unknown flow '$flow'"
 
 errs=()
 err() { errs+=("$*"); }
 val() { input_env "$1"; }
 need() { [[ -n "$(val "$1")" ]] || err "input '$1' is required $2"; }
+
+# root-kinds (optional): the kind of each root of the repository. Shape and rule shared with packages-evidence.sh (one definition).
+# shellcheck source=lib/root-kinds.sh
+source "$here/lib/root-kinds.sh"
+check_root_kinds() {
+  local problem
+  while IFS= read -r problem; do
+    [[ -z $problem ]] || err "$problem"
+  done < <(root_kinds_problems "$(val root-kinds)")
+}
+report_errors() {
+  local e
+  if ((${#errs[@]} > 0)); then
+    for e in "${errs[@]}"; do printf '::error title=Invalid inputs::%s\n' "$e" >&2; done
+    exit 1
+  fi
+}
+
+# --- node-ci: nothing but root-kinds applies (lego-node-ci takes no project, environment or compute) --------------------
+if [[ $flow == node-ci ]]; then
+  check_root_kinds
+  report_errors
+  log "inputs OK (flow=node-ci)"
+  exit 0
+fi
 
 project="$(val project)"
 environment="$(val environment)"
@@ -61,6 +87,7 @@ if [[ -n $install_dirs ]]; then
     fi
   done
 fi
+check_root_kinds
 
 # Python toolchain (G-PY1, G-PY2): both inputs or none. The content of the files is validated by python-install.sh once the
 # repository is checked out; here only the shape of the inputs.
@@ -299,8 +326,5 @@ if [[ -n $t_url && -z $t_aud ]]; then warn "telemetry-url is set but telemetry-a
 if [[ -z $t_url && -n $t_aud ]]; then warn "telemetry-audience is set but telemetry-url is empty: telemetry stays off"; fi
 
 # --- verdict ---------------------------------------------------------------------------------------------------------
-if ((${#errs[@]} > 0)); then
-  for e in "${errs[@]}"; do printf '::error title=Invalid inputs::%s\n' "$e" >&2; done
-  exit 1
-fi
+report_errors
 log "inputs OK (flow=$flow project=$project environment=$environment compute=$compute)"
