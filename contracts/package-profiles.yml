@@ -18,3 +18,23 @@ kinds:
   # Internal tooling: pipelines, shared libraries, scripts. Nothing is defined either.
   platform:
     required: []
+
+# The catalog of @nextep/* packages: the minimum and the recommended version of each one (docs/runbook.md section 12). It is evaluated against the
+# version RESOLVED in the lockfile of every @nextep/* package a repository uses, required by its kind or not; a package that is not listed here is
+# informational (what is unknown is never blocked). It lives HERE, in the file that travels with the tag: offline and reproducible, so publishing a
+# package never changes the verdict of a repository by itself, and nothing a caller passes can override it (no input reads it).
+#   min_version          below it: the policy blocks in dev and stg (PF-8) and warns in prod. Raising it puts EVERY repository below it in red
+#                        in its next run without that repository having changed anything: it is reserved for forcing an upgrade (a reviewed change).
+#   recommended_version  below it (and at or above min_version): a warning in every environment (PF-9), it never blocks. The normal nudge.
+# Both are plain X.Y.Z, and recommended_version >= min_version; every package named in a `required` list above has an entry here (the gate
+# RK-PROFILES checks all of it). The cdk-guardrails minimum is the first version that honors NEXTEP_GUARDRAILS_MODE: the platform release that carries it waits for that package release to exist.
+packages:
+  "@nextep/cdk-guardrails":
+    min_version: "0.3.0"
+    recommended_version: "0.3.0"
+  "@nextep/ecs-private-service":
+    min_version: "0.1.0"
+    recommended_version: "0.1.1"
+  "@nextep/gates":
+    min_version: "0.1.0"
+    recommended_version: "0.1.0"

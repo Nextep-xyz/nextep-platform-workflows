@@ -1444,6 +1444,49 @@ rk_fixture() {
   red root-kinds.bats ".github/workflows: no workflow declares the input 'root-kinds'"
 }
 
+@test "RK-PROFILES red (catalog): no catalog, a bad name, a version that is not X.Y.Z, a recommended below the minimum and a requirement without an entry are named" {
+  rk_fixture
+  yq -i 'del(.packages)' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: must declare 'packages' as an object with at least one entry"
+
+  rk_fixture
+  yq -i '.packages = {}' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: must declare 'packages' as an object with at least one entry"
+
+  rk_fixture
+  yq -i '.packages."cdk-guardrails" = {"min_version": "0.1.0", "recommended_version": "0.1.0"}' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: the catalog entry 'cdk-guardrails' is not a @nextep/* package name"
+
+  rk_fixture
+  yq -i '.packages."@nextep/cdk-guardrails".min_version = "0.3"' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: the catalog entry '@nextep/cdk-guardrails' needs 'min_version' as a plain X.Y.Z (got '0.3')"
+
+  rk_fixture
+  yq -i '.packages."@nextep/cdk-guardrails".recommended_version = "0.4.0-rc.1"' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: the catalog entry '@nextep/cdk-guardrails' needs 'recommended_version' as a plain X.Y.Z (got '0.4.0-rc.1')"
+
+  rk_fixture
+  yq -i 'del(.packages."@nextep/gates".recommended_version)' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: the catalog entry '@nextep/gates' needs 'recommended_version' as a plain X.Y.Z (got 'nothing')"
+
+  rk_fixture
+  yq -i '.packages."@nextep/gates".min_version = "01.1.0"' "$PROFILES"
+  red root-kinds.bats "the catalog entry '@nextep/gates' needs 'min_version' as a plain X.Y.Z (got '01.1.0')"
+
+  rk_fixture
+  yq -i '.packages."@nextep/cdk-guardrails" = {"min_version": "0.10.0", "recommended_version": "0.9.0"}' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: the catalog entry '@nextep/cdk-guardrails' has recommended_version 0.9.0 below min_version 0.10.0"
+
+  rk_fixture
+  yq -i '.kinds.backend.required = ["@nextep/not-in-the-catalog"]' "$PROFILES"
+  red root-kinds.bats "contracts/package-profiles.yml: kind 'backend' requires '@nextep/not-in-the-catalog', which has no entry in the catalog 'packages'"
+
+  rk_fixture
+  yq -i '.kinds.iac.required = ["@nextep/cdk-guardrails"]' "$PROFILES"
+  run bats "$REPO_ROOT/test/gates/root-kinds.bats"
+  [ "$status" -eq 0 ] || { echo "a requirement that has its catalog entry must pass: $output"; return 1; }
+}
+
 @test "RK-VALIDATE red: no validation, the wrong flow, a validation that runs after the evidence and one that does not receive the inputs are named" {
   rk_fixture
   yq -i 'del('"$VAL_STEP"')' "$NODECI"
