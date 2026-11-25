@@ -16,7 +16,7 @@
 load 'lib/gates'
 
 # Workflows that must show the evidence. Declared here and found on disk (SPEC corollary b): an entry whose workflow no longer exists fails as stale.
-PE_REQUIRED=(lego-node-ci lego-aws-cicd)
+PE_REQUIRED=(lego-node-ci lego-aws-cicd lego-aws-environment-deploy)
 # The composites whose steps ARE the validations of a job. A step of the job that uses one of them must be reported by the evidence step.
 PE_VALIDATION_COMPOSITES=(node-ci quality-gate package-guardrails)
 # Of those, the ones that report their REAL result in `steps.<id>.outputs.result` (their step succeeds when it only warns, so its outcome would lie):

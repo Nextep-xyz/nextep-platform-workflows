@@ -326,6 +326,8 @@ YAML
   en_fixture
   yq -i 'del(.on.workflow_call.inputs["guardrails-command"])' "$CICD"
   yq -i 'del(.inputs["guardrails-command"])' "$FX/contracts/lego-aws-cicd.contract.yml"
+  yq -i 'del(.on.workflow_call.inputs["guardrails-command"])' "$FX/.github/workflows/lego-aws-environment-deploy.yml"
+  yq -i 'del(.inputs["guardrails-command"])' "$FX/contracts/lego-aws-environment-deploy.contract.yml"
   red enforcement.bats "the input 'guardrails-command' is in the EN_KNOB_ALLOWED list of the gate but no workflow or contract declares it (stale entry)"
 }
 
@@ -409,4 +411,31 @@ YAML
   run bats --filter '^PE-OUTCOME:' "$REPO_ROOT/test/gates/packages-evidence.bats"
   [ "$status" -ne 0 ]
   [[ "$output" == *"the validation step 'package-guardrails' (package-guardrails) is not reported by the evidence step"* ]] || { echo "$output"; return 1; }
+}
+
+# ---- F3: lego-aws-environment-deploy carries the same wiring ---------------------------------------------------------------------------------------
+@test "F3 red: environment-deploy without the guard and the policy is named by EN-WIRE, and without the evidence by PE-REQUIRED" {
+  en_fixture
+  ENVDEP="$FX/.github/workflows/lego-aws-environment-deploy.yml"
+  yq -i 'del(.jobs["quality-and-security-gate"].steps[] | select(.name == "Package guardrails" or .name == "Packages policy"))' "$ENVDEP"
+  red enforcement.bats "lego-aws-environment-deploy.yml: must run the package guard and the packages policy in its gate job (it is in the EN_REQUIRED list of this gate)"
+
+  en_fixture
+  yq -i 'del(.jobs["quality-and-security-gate"].steps[] | select(.name == "Packages evidence"))' "$ENVDEP"
+  run bats --filter '^PE-REQUIRED:' "$REPO_ROOT/test/gates/packages-evidence.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"lego-aws-environment-deploy.yml: must invoke the nextep-packages-evidence composite exactly once (found 0)"* ]] || { echo "$output"; return 1; }
+}
+
+@test "F3 red: environment-deploy that does not install the project for the policy, and a Quality gate without an id, are named" {
+  en_fixture
+  ENVDEP="$FX/.github/workflows/lego-aws-environment-deploy.yml"
+  yq -i '(.jobs["quality-and-security-gate"].steps[] | select(.name == "Quality gate")) |= del(.id)' "$ENVDEP"
+  run bats --filter '^PE-OUTCOME:' "$REPO_ROOT/test/gates/packages-evidence.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"has no id, so its outcome cannot be reported"* ]] || { echo "$output"; return 1; }
+
+  en_fixture
+  yq -i '(.jobs["quality-and-security-gate"].steps[] | select(.name == "Set up the project")).if = "${{ inputs.lint-command != '"''"' || inputs.test-command != '"''"' }}"' "$ENVDEP"
+  red enforcement.bats "lego-aws-environment-deploy.yml: job 'quality-and-security-gate': the policy needs the project installed"
 }

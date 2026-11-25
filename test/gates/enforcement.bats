@@ -159,7 +159,7 @@ call_site_scripts() {
 # ---- wiring of the workflows (F2) ---------------------------------------------------------------------------------------------------------------
 # Workflows that MUST carry the policy. Declared here and found on disk (SPEC corollary b): an entry whose workflow vanished fails as stale, and a
 # workflow that uses the composites without being in the list is judged by every rule below all the same.
-EN_REQUIRED=(lego-aws-cicd)
+EN_REQUIRED=(lego-aws-cicd lego-aws-environment-deploy)
 # The only inputs whose name is about the guard: the COMMAND the package guard runs (a string). Declared here and found on disk (stale entry otherwise).
 EN_KNOB_ALLOWED=(guardrails-command)
 GUARD_COMPOSITE=.github/actions/package-guardrails/action.yml
@@ -219,6 +219,13 @@ step_indexes() {
         gate_violation "$wf" "job '$job': the package guard must receive 'guardrails-command: \${{ inputs.guardrails-command }}'"
       jq -e --arg j "$job" --argjson i "$p" '.jobs[$j].steps[$i].with["guardrails-result"] == "${{ steps.package-guardrails.outputs.result }}"' <<<"$json" >/dev/null ||
         gate_violation "$wf" "job '$job': the policy must receive 'guardrails-result: \${{ steps.package-guardrails.outputs.result }}' (the real result, never the outcome nor a fixed text)"
+      # the policy reads node_modules and the lockfiles: a setup-project step that only runs for lint or tests would leave it with nothing to read
+      s="$(step_indexes "$json" "$job" setup-project | head -n 1)"
+      if [[ -n $s ]]; then
+        jq -e --arg j "$job" --argjson i "$s" '(.jobs[$j].steps[$i].if // "") | (. == "" or contains("inputs.root-kinds"))' <<<"$json" >/dev/null ||
+          gate_violation "$wf" "job '$job': the policy needs the project installed: the setup-project step has an 'if' that does not mention inputs.root-kinds, so a repository with no lint or test command would be read with nothing installed (a false PF-6)"
+      fi
+      s="$(jq -r --arg j "$job" '(.jobs[$j].steps // []) | map(.id // "") | index("stamp-end") // -1' <<<"$json")"
       if [[ -n $e ]]; then
         jq -e --arg j "$job" --argjson i "$e" '.jobs[$j].steps[$i].with.environment == "${{ inputs.environment }}"' <<<"$json" >/dev/null ||
           gate_violation "$wf" "job '$job': the evidence step must receive 'environment: \${{ inputs.environment }}' (it names the mode of the policy)"

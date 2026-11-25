@@ -28,3 +28,5 @@ jobs:
       migration-command: pnpm run db:deploy
       migration-verify-command: pnpm run db:status
       post-migrate-command: pnpm run db:seed
+      root-kinds: '{".":"backend","infra":"iac"}'
+      guardrails-command: make guardrails

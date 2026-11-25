@@ -1190,8 +1190,8 @@ YAML
 pe_fixture() {
   rm -rf "$FX/.github" "$FX/contracts" "$FX/scripts"
   mkdir -p "$FX/.github/workflows" "$FX/.github/actions" "$FX/contracts" "$FX/scripts"
-  cp "$REPO_ROOT"/.github/workflows/lego-node-ci.yml "$REPO_ROOT"/.github/workflows/lego-aws-cicd.yml "$FX/.github/workflows/"
-  cp "$REPO_ROOT"/contracts/lego-node-ci.contract.yml "$REPO_ROOT"/contracts/lego-aws-cicd.contract.yml "$FX/contracts/"
+  cp "$REPO_ROOT"/.github/workflows/lego-node-ci.yml "$REPO_ROOT"/.github/workflows/lego-aws-cicd.yml "$REPO_ROOT"/.github/workflows/lego-aws-environment-deploy.yml "$FX/.github/workflows/"
+  cp "$REPO_ROOT"/contracts/lego-node-ci.contract.yml "$REPO_ROOT"/contracts/lego-aws-cicd.contract.yml "$REPO_ROOT"/contracts/lego-aws-environment-deploy.contract.yml "$FX/contracts/"
   cp -r "$REPO_ROOT"/.github/actions/nextep-packages-evidence "$FX/.github/actions/"
   cp "$REPO_ROOT"/scripts/packages-evidence.sh "$FX/scripts/"
   NODECI="$FX/.github/workflows/lego-node-ci.yml"
@@ -1224,6 +1224,7 @@ pe_fixture() {
   pe_fixture
   yq -i 'del('"$PE_STEP"')' "$NODECI"
   yq -i 'del('"$PE_STEP_CICD"')' "$CICD"
+  yq -i 'del('"$PE_STEP_CICD"')' "$FX/.github/workflows/lego-aws-environment-deploy.yml"
   red packages-evidence.bats ".github/workflows: no workflow invokes the nextep-packages-evidence composite"
 }
 
@@ -1441,6 +1442,7 @@ rk_fixture() {
   rk_fixture
   yq -i 'del(.on.workflow_call.inputs."root-kinds")' "$NODECI"
   yq -i 'del(.on.workflow_call.inputs."root-kinds")' "$CICD"
+  yq -i 'del(.on.workflow_call.inputs."root-kinds")' "$FX/.github/workflows/lego-aws-environment-deploy.yml"
   red root-kinds.bats ".github/workflows: no workflow declares the input 'root-kinds'"
 }
 
@@ -1493,8 +1495,8 @@ rk_fixture() {
   red root-kinds.bats "lego-node-ci.yml: job 'ci' hands root-kinds to the packages evidence but never calls validate-inputs"
 
   rk_fixture
-  yq -i '('"$VAL_STEP"').with.flow = "environment-deploy"' "$NODECI"
-  red root-kinds.bats "lego-node-ci.yml: job 'ci': validate-inputs runs with flow 'environment-deploy'"
+  yq -i '('"$VAL_STEP"').with.flow = "bogus"' "$NODECI"
+  red root-kinds.bats "lego-node-ci.yml: job 'ci': validate-inputs runs with flow 'bogus'"
 
   rk_fixture
   yq -i '.jobs.ci.steps |= ([.[] | select(.name != "Validate the inputs")] + [.[] | select(.name == "Validate the inputs")])' "$NODECI"

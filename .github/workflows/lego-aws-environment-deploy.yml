@@ -218,6 +218,18 @@ on:
         description: "Audience of the OIDC token requested for the collector: a plain lower-case slug (no dots). Empty disables telemetry. Set it from a repository variable."
         type: string
         default: ""
+      packages-evidence:
+        description: "Write the evidence of the @nextep/* packages (table of versions, origin, integrity, guardrails rules and the real result of the quality gate and of the package guard) to the summary of the gate job. It reads outcomes and results, runs no caller command and never fails the job."
+        type: boolean
+        default: true
+      root-kinds:
+        description: "The kind of each root of the repository, as a JSON object {\"<root>\": \"<kind>\"}, for example {\".\":\"backend\",\"infra\":\"iac\"}. Kinds (closed vocabulary): iac, backend, frontend, platform. The packages policy needs it: a repository that has not declared it has not opted in, which blocks the gate in dev and stg and warns in prod. A malformed value fails the job."
+        type: string
+        default: ""
+      guardrails-command:
+        description: "Command that runs the package guard (the CLI of @nextep/cdk-guardrails) when the repository has an IaC root. In dev and stg a red guard fails the gate; in prod it only warns. The mode comes from the environment alone: there is no input that relaxes it. Default make guardrails."
+        type: string
+        default: "make guardrails"
 
 jobs:
   quality-and-security-gate:
@@ -252,7 +264,7 @@ jobs:
           inputs-json: ${{ toJSON(inputs) }}
       # parity: H-02
       - name: Set up the project
-        if: ${{ inputs.lint-command != '' || inputs.test-command != '' }}
+        if: ${{ inputs.lint-command != '' || inputs.test-command != '' || inputs.root-kinds != '' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
         with:
           package-manager: ${{ inputs.package-manager }}
@@ -270,6 +282,7 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
       # parity: H-03, H-04, H-05
       - name: Quality gate
+        id: quality-gate
         if: ${{ inputs.lint-command != '' || inputs.test-command != '' }}
         uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
         with:
@@ -280,6 +293,44 @@ jobs:
           test-database-image: ${{ inputs.test-database-image }}
           lint-command: ${{ inputs.lint-command }}
           test-command: ${{ inputs.test-command }}
+      # The packages policy (docs/runbook.md section 12). Both steps run even when the quality gate failed (!cancelled()), and their mode comes only from
+      # the environment: dev and stg block, prod warns and never holds back the delivery, a rollback by image-tag included. They sit before the evidence
+      # and the end stamp (gate T9).
+      - name: Package guardrails
+        id: package-guardrails
+        if: ${{ !cancelled() }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-guardrails@main
+        with:
+          project: ${{ inputs.project }}
+          environment: ${{ inputs.environment }}
+          aws-region: ${{ inputs.aws-region }}
+          guardrails-command: ${{ inputs.guardrails-command }}
+          install-dirs: ${{ inputs.install-dirs }}
+          package-manager: ${{ inputs.package-manager }}
+          root-kinds: ${{ inputs.root-kinds }}
+      - name: Packages policy
+        id: packages-policy
+        if: ${{ !cancelled() }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-policy@main
+        with:
+          environment: ${{ inputs.environment }}
+          install-dirs: ${{ inputs.install-dirs }}
+          package-manager: ${{ inputs.package-manager }}
+          root-kinds: ${{ inputs.root-kinds }}
+          guardrails-result: ${{ steps.package-guardrails.outputs.result }}
+      # Reporting only: it runs even when the gate failed (always()), reads the REAL outcome of the quality gate and the real result of the guard, and
+      # never fails the job. It sits before the end stamp because gate T9 keeps that stamp as the last step of the job.
+      - name: Packages evidence
+        if: ${{ always() && inputs.packages-evidence }}
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@main
+        with:
+          environment: ${{ inputs.environment }}
+          install-dirs: ${{ inputs.install-dirs }}
+          package-manager: ${{ inputs.package-manager }}
+          root-kinds: ${{ inputs.root-kinds }}
+          validations: |
+            Quality gate (lint and tests)=${{ steps.quality-gate.outcome }}
+            Package guardrails=${{ steps.package-guardrails.outputs.result }}
       - name: Stamp the end
         id: stamp-end
         if: ${{ always() }}

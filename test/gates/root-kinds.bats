@@ -133,8 +133,8 @@ declaring_workflows() {
         gate_violation "$wf" "job '$job' validates the inputs AFTER the packages evidence has used root-kinds"
       else
         flow="$(jq -r --arg j "$job" --argjson i "$v_idx" '.jobs[$j].steps[$i].with.flow // ""' <<<"$json")"
-        [[ $flow == cicd || $flow == node-ci ]] ||
-          gate_violation "$wf" "job '$job': validate-inputs runs with flow '$flow'; a workflow that carries root-kinds must use flow cicd or node-ci, the ones that validate it"
+        [[ $flow == cicd || $flow == node-ci || $flow == environment-deploy ]] ||
+          gate_violation "$wf" "job '$job': validate-inputs runs with flow '$flow'; a workflow that carries root-kinds must use flow cicd, environment-deploy or node-ci, the ones that validate it"
         jq -e --arg j "$job" --argjson i "$v_idx" '.jobs[$j].steps[$i].with["inputs-json"] == "${{ toJSON(inputs) }}"' <<<"$json" >/dev/null ||
           gate_violation "$wf" "job '$job': validate-inputs must receive 'inputs-json: \${{ toJSON(inputs) }}' (root-kinds travels in it)"
       fi
