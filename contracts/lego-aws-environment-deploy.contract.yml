@@ -156,6 +156,17 @@ inputs:
   telemetry-audience:
     type: string
     default: ""
+  # evidence and policy of the @nextep/* packages (docs/runbook.md sections 11 and 12); true keeps the evidence on, the policy has no switch
+  packages-evidence:
+    type: boolean
+    default: true
+  root-kinds:
+    type: string
+    default: ""
+  # the command of the package guard; the mode of the policy comes from the environment alone
+  guardrails-command:
+    type: string
+    default: "make guardrails"
 secrets: {}
 outputs: {}
 jobs:

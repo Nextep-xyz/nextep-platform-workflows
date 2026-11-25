@@ -366,3 +366,24 @@ run_policy() { # run_policy <environment>
   [ "$status" -eq 0 ]
   [[ "$output" == *"::warning title=PF-1::"* ]]
 }
+
+# --- the rollback by image-tag in prod (environment-deploy) ----------------------------------------------------------------------------------------
+@test "E1: a rollback by image-tag in prod is not held back: the gate job of environment-deploy only warns, whatever the policy finds, and the deploy job waits for that gate" {
+  local wf="$REPO_ROOT/.github/workflows/lego-aws-environment-deploy.yml"
+  # the shape: image-tag is an input, the gate job runs the guard and the policy with !cancelled() (never success()) and the deploy job needs the gate
+  [ "$(yq -r '.on.workflow_call.inputs | has("image-tag")' "$wf")" = true ]
+  [ "$(yq -r '.jobs["infra-deploy"].needs | contains(["quality-and-security-gate"])' "$wf")" = true ]
+  [ "$(yq -r '[.jobs["quality-and-security-gate"].steps[] | select((.uses // "") | test("(package-guardrails|nextep-packages-policy)@")) | (.if == "${{ !cancelled() }}")] | all' "$wf")" = true ]
+  # the worst case in prod: no opt-in, a red guard and a missing command together
+  good_repo
+  unset ROOT_KINDS
+  printf '{}\n' >infra/cdk.json
+  GUARDRAILS_RESULT=fail run_policy prod
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"::warning title=PF-1::"* && "$output" == *"::warning title=PF-5::"* && "$output" != *"::error"* ]]
+  GUARDRAILS_RESULT=missing run_policy prod
+  [ "$status" -eq 0 ]
+  # and the same findings in dev do block
+  GUARDRAILS_RESULT=fail run_policy dev
+  [ "$status" -eq 1 ]
+}
