@@ -17,4 +17,5 @@ jobs:
       role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
       install-dirs: ".,infra"
       root-kinds: '{".":"backend","infra":"iac"}'
+      guardrails-command: make guardrails
       deploy-command: pnpm --filter infra run deploy:ci

@@ -1,0 +1,66 @@
+name: package-guardrails
+description: Runs the package guard of the repository (guardrails-command, the CLI of @nextep/cdk-guardrails) as a step of the platform and maps its result by environment - in dev and stg a red guard fails the step, in prod it only warns. The mode comes only from the environment (scripts/lib/enforcement.sh); there is no input that relaxes it. It runs only when the repository has an IaC root. The real result is the output `result`, never the outcome of the step.
+inputs:
+  project:
+    description: Project prefix (exposed to the command as PROJECT).
+    required: true
+  environment:
+    description: The environment of the run (dev, stg or prod). It decides the mode; anything else is treated as enforce.
+    required: true
+  aws-region:
+    description: AWS region (exposed to the command as AWS_REGION).
+    required: true
+  guardrails-command:
+    description: The command that runs the guard. Empty in a repository that has an IaC root is a finding (the guard did not run).
+    required: false
+    default: ""
+  install-dirs:
+    description: Comma separated package roots (the same value the install used).
+    required: false
+    default: "."
+  package-manager:
+    description: npm or pnpm.
+    required: false
+    default: pnpm
+  root-kinds:
+    description: "The kind of each root, as a JSON object {\"<root>\": \"<kind>\"} (already validated by the workflow)."
+    required: false
+    default: ""
+outputs:
+  result:
+    description: pass, fail, warn, missing or skipped. The packages policy and the evidence read it; a fixed value defeats the purpose.
+    value: ${{ steps.guard.outputs.result }}
+runs:
+  using: composite
+  # No internal `uses:` here on purpose (gate G11): the caller workflow runs setup-project first.
+  steps:
+    - name: Derive the stage
+      id: ctx
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        PROJECT: ${{ inputs.project }}
+        ENVIRONMENT: ${{ inputs.environment }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/derive-context.sh" >>"$GITHUB_OUTPUT"
+    - name: Run the package guard
+      id: guard
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        CMD: ${{ inputs.guardrails-command }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        INSTALL_DIRS: ${{ inputs.install-dirs }}
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        ROOT_KINDS: ${{ inputs.root-kinds }}
+        PROJECT: ${{ inputs.project }}
+        APP_ENV: ${{ inputs.environment }}
+        APP_STAGE: ${{ steps.ctx.outputs.stage }}
+        STACK_SUFFIX: ${{ steps.ctx.outputs.stage }}
+        AWS_REGION: ${{ inputs.aws-region }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/package-guardrails.sh"

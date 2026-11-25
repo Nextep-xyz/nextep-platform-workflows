@@ -13,13 +13,18 @@ setup() {
 # en_fixture: the real scripts, composites and workflows, so each test breaks ONE thing in a tree that is otherwise the real one
 en_fixture() {
   rm -rf "$FX"
-  mkdir -p "$FX/.github" "$FX/contracts"
+  mkdir -p "$FX/.github" "$FX/contracts" "$FX/docs"
   cp -r "$REPO_ROOT/scripts" "$FX/scripts"
   cp -r "$REPO_ROOT/.github/actions" "$FX/.github/actions"
   cp -r "$REPO_ROOT/.github/workflows" "$FX/.github/workflows"
-  cp "$REPO_ROOT/contracts/package-profiles.yml" "$FX/contracts/"
+  cp "$REPO_ROOT"/contracts/*.yml "$FX/contracts/"
+  cp "$REPO_ROOT/docs/exceptions.yml" "$FX/docs/exceptions.yml"
   POLICY="$FX/scripts/packages-policy.sh"
   POLICY_ACTION="$FX/.github/actions/nextep-packages-policy/action.yml"
+  GUARD_ACTION="$FX/.github/actions/package-guardrails/action.yml"
+  GUARD="$FX/scripts/package-guardrails.sh"
+  CICD="$FX/.github/workflows/lego-aws-cicd.yml"
+  GATEJOB='.jobs["quality-and-security-gate"].steps[]'
   RUNCMD="$FX/scripts/run-command.sh"
   LIB="$FX/scripts/lib/enforcement.sh"
 }
@@ -221,4 +226,187 @@ YAML
   en_fixture
   printf '\nwget https://example.org/x\n' >>"$FX/scripts/lib/semver.sh"
   red enforcement.bats "scripts/lib/semver.sh: code line"
+}
+
+# ---- F2: the wiring gates -----------------------------------------------------------------------------------------------------------------------
+@test "the wiring gates (EN-WIRE, EN-NOKNOB, EN-COE, EN-SAFE-GUARD) fail with '0 subjects' on an empty tree instead of passing" {
+  local g
+  mkdir -p "$FX"
+  for g in EN-WIRE EN-NOKNOB EN-COE EN-SAFE-GUARD; do
+    run bats --filter "^$g:" "$REPO_ROOT/test/gates/enforcement.bats"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"0 subjects discovered"* ]] || { echo "$g: $output"; return 1; }
+  done
+}
+
+@test "EN-WIRE red: a gate job without the guard or without the policy, and a workflow of the required list that does not carry them, are named" {
+  en_fixture
+  yq -i 'del('"$GATEJOB"' | select(.name == "Packages policy"))' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate' must use the package-guardrails composite exactly once and the nextep-packages-policy composite exactly once (found 1 and 0)"
+
+  en_fixture
+  yq -i 'del('"$GATEJOB"' | select(.name == "Package guardrails"))' "$CICD"
+  red enforcement.bats "found 0 and 1"
+
+  en_fixture
+  yq -i 'del('"$GATEJOB"' | select(.name == "Package guardrails" or .name == "Packages policy"))' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: must run the package guard and the packages policy in its gate job (it is in the EN_REQUIRED list of this gate)"
+}
+
+@test "EN-WIRE red: a wrong order, a missing !cancelled(), always(), a wrong environment, root-kinds, command or result wiring are named" {
+  en_fixture
+  yq -i '.jobs["quality-and-security-gate"].steps |= ([.[] | select(.name == "Packages policy")] + [.[] | select(.name != "Packages policy")])' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate': the packages policy must run AFTER the package guard"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages policy")).if = "${{ success() }}"' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate': step #"
+  [[ "$output" == *"of the policy must carry 'if: \${{ !cancelled() }}'"* ]]
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Package guardrails")).if = "${{ always() && !cancelled() }}"' "$CICD"
+  red enforcement.bats "of the policy must carry 'if: \${{ !cancelled() }}'"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages policy")).with.environment = "dev"' "$CICD"
+  red enforcement.bats "must receive 'environment: \${{ inputs.environment }}' (the environment decides the mode, and nothing else)"
+
+  en_fixture
+  yq -i 'del(('"$GATEJOB"' | select(.name == "Packages policy")).with["root-kinds"])' "$CICD"
+  red enforcement.bats "must receive 'root-kinds: \${{ inputs.root-kinds }}'"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Package guardrails")).with["guardrails-command"] = "make guardrails"' "$CICD"
+  red enforcement.bats "the package guard must receive 'guardrails-command: \${{ inputs.guardrails-command }}'"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages policy")).with["guardrails-result"] = "${{ steps.package-guardrails.outcome }}"' "$CICD"
+  red enforcement.bats "the policy must receive 'guardrails-result: \${{ steps.package-guardrails.outputs.result }}' (the real result, never the outcome nor a fixed text)"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Package guardrails")).id = "guard"' "$CICD"
+  red enforcement.bats "the package guard step must have the id 'package-guardrails'"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages evidence")).with.environment = "prod"' "$CICD"
+  red enforcement.bats "the evidence step must receive 'environment: \${{ inputs.environment }}'"
+}
+
+@test "EN-WIRE red: the policy after the evidence, and after the end stamp, are named" {
+  en_fixture
+  yq -i '.jobs["quality-and-security-gate"].steps |= ([.[] | select(.name != "Packages evidence")] + [.[] | select(.name == "Packages evidence")])' "$CICD"
+  yq -i '.jobs["quality-and-security-gate"].steps |= ([.[] | select(.name != "Packages policy")] + [.[] | select(.name == "Packages policy")])' "$CICD"
+  red enforcement.bats "the policy must run BEFORE the end stamp, which stays the last step (T9)"
+}
+
+@test "EN-NOKNOB red: an input that lowers, skips or switches off the policy is named in the workflow and in the contract; an unrelated input and the declared exception are not" {
+  local name
+  for name in packages-enforce packages-mode policy-mode skip-guardrails enforce-guardrails relax-policy guardrails-warn disable-policy bypass-policy; do
+    en_fixture
+    yq -i '.on.workflow_call.inputs["'"$name"'"] = {"type": "boolean", "default": false}' "$CICD"
+    yq -i '.inputs["'"$name"'"] = {"type": "boolean", "default": false}' "$FX/contracts/lego-aws-cicd.contract.yml"
+    red enforcement.bats ".github/workflows/lego-aws-cicd.yml: declares the input '$name', whose name is about relaxing or configuring the policy"
+    [[ "$output" == *"contracts/lego-aws-cicd.contract.yml: declares the input '$name'"* ]] || { echo "$name: $output"; return 1; }
+  done
+  en_fixture
+  yq -i '.on.workflow_call.inputs["db-ssl-mode"].default = "verify-full"' "$CICD"
+  run bats --filter '^EN-NOKNOB:' "$REPO_ROOT/test/gates/enforcement.bats"
+  [ "$status" -eq 0 ] || { echo "db-ssl-mode must not be flagged: $output"; return 1; }
+}
+
+@test "EN-NOKNOB red: the one declared input (guardrails-command) is held to be a string with the default of the command, and a stale entry of the list is named" {
+  en_fixture
+  yq -i '.on.workflow_call.inputs["guardrails-command"] = {"type": "boolean", "default": false}' "$CICD"
+  red enforcement.bats ".github/workflows/lego-aws-cicd.yml: the input 'guardrails-command' must be a string with the default \"make guardrails\": it is the COMMAND of the package guard, never a switch"
+
+  en_fixture
+  yq -i '.inputs["guardrails-command"].default = ""' "$FX/contracts/lego-aws-cicd.contract.yml"
+  red enforcement.bats "contracts/lego-aws-cicd.contract.yml: the input 'guardrails-command' must be a string with the default"
+
+  en_fixture
+  yq -i 'del(.on.workflow_call.inputs["guardrails-command"])' "$CICD"
+  yq -i 'del(.inputs["guardrails-command"])' "$FX/contracts/lego-aws-cicd.contract.yml"
+  red enforcement.bats "the input 'guardrails-command' is in the EN_KNOB_ALLOWED list of the gate but no workflow or contract declares it (stale entry)"
+}
+
+@test "EN-COE red: continue-on-error on the package guard, on the policy, on the quality gate or on the job that holds them is named" {
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Package guardrails"))["continue-on-error"] = true' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate' sets continue-on-error on a gate, the package guard or the policy"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages policy"))["continue-on-error"] = true' "$CICD"
+  red enforcement.bats "found 'quality-and-security-gate:step:true'"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Quality gate"))["continue-on-error"] = true' "$CICD"
+  red enforcement.bats "found 'quality-and-security-gate:step:true'"
+
+  en_fixture
+  yq -i '.jobs["quality-and-security-gate"]["continue-on-error"] = true' "$CICD"
+  red enforcement.bats "found 'quality-and-security-gate:job:true'"
+}
+
+@test "EN-SAFE-GUARD red: a secret, an id-token, another action, a foreign variable, a network call and a guard that decides its own mode are named" {
+  en_fixture
+  yq -i '.runs.steps[1].env.MY_TOKEN = "${{ secrets.X }}"' "$GUARD_ACTION"
+  red enforcement.bats ".github/actions/package-guardrails/action.yml: hands the variable 'MY_TOKEN' to the script"
+
+  en_fixture
+  yq -i '.runs.steps += [{"uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1"}]' "$GUARD_ACTION"
+  red enforcement.bats ".github/actions/package-guardrails/action.yml: uses another action"
+
+  en_fixture
+  yq -i '.runs.steps[1].run = "make guardrails"' "$GUARD_ACTION"
+  red enforcement.bats ".github/actions/package-guardrails/action.yml: a step runs something other than scripts/package-guardrails.sh or scripts/derive-context.sh"
+
+  en_fixture
+  yq -i '.outputs.result.value = "${{ steps.guard.outcome }}"' "$GUARD_ACTION"
+  red enforcement.bats ".github/actions/package-guardrails/action.yml: must expose the output 'result' from the guard step"
+
+  en_fixture
+  yq -i 'del(.runs.steps[1].if)' "$GUARD_ACTION"
+  red enforcement.bats ".github/actions/package-guardrails/action.yml: every step must carry"
+
+  en_fixture
+  printf '\ncurl -s https://example.org/x >/dev/null\n' >>"$GUARD"
+  red enforcement.bats "scripts/package-guardrails.sh: code line"
+
+  en_fixture
+  sed -i 's/enforcement_mode "\${ENVIRONMENT-}"/echo enforce/' "$GUARD"
+  red enforcement.bats "scripts/package-guardrails.sh: must take the mode from 'enforcement_mode"
+
+  en_fixture
+  sed -i 's|"\$here/run-command.sh" guardrails|bash -c "$cmd"|' "$GUARD"
+  red enforcement.bats "scripts/package-guardrails.sh: must run the command through run-command.sh"
+}
+
+@test "EN-SINGLE / EN-ENV red: the guard composite is a call site that is found on disk (it reaches run-command.sh through package-guardrails.sh)" {
+  en_fixture
+  yq -i 'del(.runs.steps[] | select(.id == "guard") | .env.APP_ENV)' "$GUARD_ACTION"
+  red enforcement.bats ".github/actions/package-guardrails/action.yml: step 'Run the package guard' reaches run-command.sh without 'APP_ENV: \${{ inputs.environment }}'"
+
+  en_fixture
+  printf '\nif [[ ${ENVIRONMENT-} == prod ]]; then echo relaxed; fi\n' >>"$GUARD"
+  red enforcement.bats "scripts/package-guardrails.sh: decides something from the name of an environment"
+}
+
+@test "PE-OUTCOME red: the evidence reads the OUTCOME of the package guard (it would say success when it only warned), or outputs.result of a step that has none" {
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages evidence")).with.validations = "Quality gate (lint and tests)=${{ steps.quality-gate.outcome }}\nPackage guardrails=${{ steps.package-guardrails.outcome }}\n"' "$CICD"
+  run bats --filter '^PE-OUTCOME:' "$REPO_ROOT/test/gates/packages-evidence.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"reads the outcome of the package-guardrails step, which succeeds when it only warns: read steps.package-guardrails.outputs.result"* ]] || { echo "$output"; return 1; }
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages evidence")).with.validations = "Quality gate (lint and tests)=${{ steps.quality-gate.outputs.result }}\nPackage guardrails=${{ steps.package-guardrails.outputs.result }}\n"' "$CICD"
+  run bats --filter '^PE-OUTCOME:' "$REPO_ROOT/test/gates/packages-evidence.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"reads steps.quality-gate.outputs.result, which only a step that uses one of (package-guardrails) has"* ]] || { echo "$output"; return 1; }
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages evidence")).with.validations = "Quality gate (lint and tests)=${{ steps.quality-gate.outcome }}\n"' "$CICD"
+  run bats --filter '^PE-OUTCOME:' "$REPO_ROOT/test/gates/packages-evidence.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"the validation step 'package-guardrails' (package-guardrails) is not reported by the evidence step"* ]] || { echo "$output"; return 1; }
 }

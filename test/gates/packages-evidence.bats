@@ -18,9 +18,12 @@ load 'lib/gates'
 # Workflows that must show the evidence. Declared here and found on disk (SPEC corollary b): an entry whose workflow no longer exists fails as stale.
 PE_REQUIRED=(lego-node-ci lego-aws-cicd)
 # The composites whose steps ARE the validations of a job. A step of the job that uses one of them must be reported by the evidence step.
-PE_VALIDATION_COMPOSITES=(node-ci quality-gate)
+PE_VALIDATION_COMPOSITES=(node-ci quality-gate package-guardrails)
+# Of those, the ones that report their REAL result in `steps.<id>.outputs.result` (their step succeeds when it only warns, so its outcome would lie):
+# a line that reads the outcome of one of them is a violation, and a line that reads `outputs.result` must belong to one of them.
+PE_RESULT_COMPOSITES=(package-guardrails)
 # The environment the composite may hand to its script (SCRIPTS is the path of the scripts; the rest are the data of the block).
-PE_COMPOSITE_ENV=(SCRIPTS INSTALL_DIRS PACKAGE_MANAGER ROOT_KINDS VALIDATIONS ACTION_REPOSITORY ACTION_REF)
+PE_COMPOSITE_ENV=(SCRIPTS INSTALL_DIRS PACKAGE_MANAGER ROOT_KINDS ENVIRONMENT VALIDATIONS ACTION_REPOSITORY ACTION_REF)
 PE_COMPOSITE=.github/actions/nextep-packages-evidence/action.yml
 PE_SCRIPT=scripts/packages-evidence.sh
 
@@ -92,7 +95,7 @@ composite_of() { sed -nE 's#.*/\.github/actions/([a-z0-9-]+)@.*#\1#p' <<<"$1"; }
   gate_require_tools yq jq
   gate_discover_lego_workflows PE-OUTCOME
   local workflows=("${GATE_SUBJECTS[@]}") wf w job idx json vals line id at i lines n step_id c uses found=0 name
-  local outcome_re='^[^=]+=\$\{\{ steps\.([A-Za-z0-9_-]+)\.outcome \}\}$'
+  local outcome_re='^[^=]+=\$\{\{ steps\.([A-Za-z0-9_-]+)\.(outcome|outputs\.result) \}\}$' field
   GATE_VIOLATIONS=()
   declare -A reported_composites=()
   for wf in "${workflows[@]}"; do
@@ -110,6 +113,7 @@ composite_of() { sed -nE 's#.*/\.github/actions/([a-z0-9-]+)@.*#\1#p' <<<"$1"; }
         lines=$((lines + 1))
         if [[ $line =~ $outcome_re ]]; then
           id="${BASH_REMATCH[1]}"
+          field="${BASH_REMATCH[2]}"
           at="$(jq -r --arg j "$job" --arg id "$id" '(.jobs[$j].steps // []) | map(.id // "") | index($id) // -1' <<<"$json")"
           if ((at < 0)); then
             gate_violation "$wf" "job '$job': the validation '${line%%=*}' reads steps.$id.outcome but no step of the job has that id"
@@ -120,7 +124,11 @@ composite_of() { sed -nE 's#.*/\.github/actions/([a-z0-9-]+)@.*#\1#p' <<<"$1"; }
             uses="$(jq -r --argjson a "$at" --arg j "$job" '.jobs[$j].steps[$a].uses // ""' <<<"$json")"
             c="$(composite_of "$uses")"
             if [[ -z $c || " ${PE_VALIDATION_COMPOSITES[*]} " != *" $c "* ]]; then
-              gate_violation "$wf" "job '$job': the validation '${line%%=*}' reads steps.$id.outcome, which is not a validation step (it must use one of: ${PE_VALIDATION_COMPOSITES[*]})"
+              gate_violation "$wf" "job '$job': the validation '${line%%=*}' reads steps.$id.$field, which is not a validation step (it must use one of: ${PE_VALIDATION_COMPOSITES[*]})"
+            elif [[ $field == outcome && " ${PE_RESULT_COMPOSITES[*]} " == *" $c "* ]]; then
+              gate_violation "$wf" "job '$job': the validation '${line%%=*}' reads the outcome of the $c step, which succeeds when it only warns: read steps.$id.outputs.result (its real result)"
+            elif [[ $field == outputs.result && " ${PE_RESULT_COMPOSITES[*]} " != *" $c "* ]]; then
+              gate_violation "$wf" "job '$job': the validation '${line%%=*}' reads steps.$id.outputs.result, which only a step that uses one of (${PE_RESULT_COMPOSITES[*]}) has"
             else
               reported_composites[$c]=1
             fi
