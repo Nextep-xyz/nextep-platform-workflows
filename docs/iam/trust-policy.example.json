@@ -12,7 +12,9 @@
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
           "token.actions.githubusercontent.com:job_workflow_ref": [
             "example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@refs/tags/v1",
-            "example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@refs/tags/v1"
+            "example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@refs/tags/v1",
+            "example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@refs/tags/v2",
+            "example-org/nextep-platform-workflows/.github/workflows/lego-aws-environment-deploy.yml@refs/tags/v2"
           ]
         },
         "StringLike": {

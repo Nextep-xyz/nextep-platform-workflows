@@ -498,7 +498,7 @@ Everything printed that comes from the repository (names, specs, URLs) goes insi
 ### 11.5 Limits and NOT VERIFIED
 
 - **A package installed from a registry** (for example CodeArtifact, `registry-scope`) has no Release URL: its row is `❌ origin is not a GitHub Release URL`. That is the strict reading of "distributed as a Release"; relaxing it for registry-served packages is a decision for the maintainers, not a default.
-- Only the gate job of `lego-aws-cicd` carries it; `lego-aws-environment-deploy` (its own gate and the deploys) does not.
+- The gate job of `lego-aws-cicd` and the gate job of `lego-aws-environment-deploy` (since `v2.0.0`, section 12) carry it; the deploy jobs do not.
 - A screenshot of a summary is evidence of what the run printed, not a signed attestation of the packages.
 - **Not exercised on GitHub.** Verified with fixtures that are the real output of `pnpm` 10 (lockfile v9) and `npm` 9 for a tarball dependency, a fake `nextep-guardrails`, and the gates in red. The Platform row: `github.job_workflow_ref` was read first and came out **empty in a real run** (it is a claim of the OIDC token, not a property of the `github` context): **verified in negative**, so it is no longer a source (gate `PE-PLATFORM`). The new source, `github.action_repository` + `github.action_ref` of the composite, is **not verified until a real run**; if the ref arrives empty the row says `not available` (honest, not wrong) and exposing the tag from the reusable becomes its own spec. Open: that `yq` (mikefarah v4) is on `ubuntu-latest` as the script assumes; the rendering of the block in the run summary; and the real output format of `nextep-guardrails --list-rules` (the parser takes the first token of each line as the rule id and ignores lines that are not shaped like one).
 
@@ -509,7 +509,7 @@ Without it the block only **discovers** what the repository declares, so it cann
 ```yaml
 jobs:
   cicd:
-    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@v1
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@v2
     with:
       install-dirs: ".,infra"
       root-kinds: '{".":"backend","infra":"iac"}'
@@ -527,3 +527,113 @@ jobs:
 | `required by kind iac and not declared` | the root has no `@nextep/cdk-guardrails` in any of its manifests | Add the dependency (Release URL) and reinstall |
 | `undeclared iac root` | a directory has CDK files and is not declared `iac` | Declare it `iac` (or the root that contains it) in `root-kinds` |
 | `not installed: <root>/node_modules does not exist` | the package is declared but the root was not installed | Add the root to `install-dirs` |
+
+
+## 12. The packages policy by environment (`v2.0.0`)
+
+Until `v1` the packages evidence (section 11) only **reported**: a repository with no `@nextep/*` package and no `root-kinds` got an `n/a` and was deployed in green. From `v2.0.0`
+`lego-aws-cicd` and `lego-aws-environment-deploy` **demand** it, according to the environment they deploy to. There is no input that switches it off or lowers it (the gates
+`EN-NOKNOB` and `EN-WIRE` keep it that way): the mode comes from the `environment` input and from nothing else.
+
+### 12.1 The rule
+
+The **target environment** is the input `environment` (`dev`, `stg` or `prod`), independent of `run-deploy`: a pull request of `lego-aws-cicd` with `environment: dev` is judged in dev
+mode, so the required check blocks the merge before the push to `develop`. The mode is decided in ONE place, `scripts/lib/enforcement.sh`: `dev` and `stg` are `enforce`, `prod` is `warn`,
+and **anything else (an empty value, `Prod`, `production`) is `enforce`**: what is unknown never relaxes the policy.
+
+| Finding | `dev` | `stg` | `prod` |
+|---|---|---|---|
+| **PF-1** no `root-kinds` (the repository has not opted in) | blocks | blocks | warns |
+| **PF-2** an `install-dirs` root with no declared kind | blocks | blocks | warns |
+| **PF-3** a package required by the kind is missing | blocks | blocks | warns |
+| **PF-4** a root with CDK files that is not declared `iac` | blocks | blocks | warns |
+| **PF-5** the package guard is red (plugin, Jest, CLI, or the package cannot list its rules) | blocks | blocks | warns |
+| **PF-6** an `iac` root that is not installed (no lockfile or no `node_modules`) | blocks | blocks | warns |
+| **PF-7** `guardrails-command` missing or that did not run, in a repository with an IaC root | blocks | blocks | warns |
+| **PF-8** a `@nextep/*` package in use below its `min_version` (section 12.5) | blocks | blocks | warns |
+| **PF-9** a `@nextep/*` package in use below its `recommended_version` (and at or above the minimum) | warns | warns | warns |
+
+- **Blocks** means the `quality-and-security-gate` job fails, so `database-migration` and `deploy`/`infra-deploy` do not start (the behaviour of a red gate). **Warns** means a `::warning::`,
+  a section `### Package policy ⚠️ not blocking in prod` in the summary, and exit 0: the delivery, a hotfix and a **rollback by `image-tag`** included, is never held back by it.
+  PF-9 never blocks in any environment.
+- PF-8 and PF-9 apply to **every** `@nextep/*` package the repository uses, required by its kind or not. A package that is not in the catalog is informational.
+- What is **not** relaxed in prod: lint, tests, build, scans, the migration and the security guards of the platform. This is only the packages policy.
+- The error in dev and stg names the **kind** and the **package** that is missing, and which root caused it (PF-1 lists what every kind requires, generated from `contracts/package-profiles.yml`).
+
+### 12.2 What runs (and where)
+
+In the gate job of both workflows, after the quality gate and before the evidence and the end stamp (the order is a gate, `EN-WIRE`; every step runs with `if: ${{ !cancelled() }}`):
+
+1. **`package-guardrails`** (composite, `scripts/package-guardrails.sh`): runs `guardrails-command` (input, default `make guardrails`: the CLI of `@nextep/cdk-guardrails`) **only when the
+   repository has an IaC root** (declared `iac` or detected by CDK files). It maps the result by mode **inside the script**, never with `continue-on-error`: `rc 0` is `pass`; a red guard
+   is `fail` (the step fails in dev and stg) or `warn` (exit 0 with a `::warning::` in prod); a command that does not exist is `missing`. The real result is the output `result`
+   (`pass | fail | warn | missing | skipped`): the `outcome` of a step that only warns would be `success`.
+2. **`nextep-packages-policy`** (composite, `scripts/packages-policy.sh`): reads the verdict of the evidence (`scripts/packages-evidence.sh findings`, the **same** reading of the disk that
+   renders the block, so the block and the verdict cannot disagree) plus the result of the guard, and applies the table of 12.1.
+3. **`nextep-packages-evidence`** (section 11): now also names the **mode** in a `Mode` row, shows the real result of the guard, and shows a red policy axis as `❌ FAILED` in enforce mode
+   and as `⚠️ NOT GREEN (not blocking in prod)` in warn mode. A validation that really failed (lint, tests) is `❌` in every environment.
+
+The mode also reaches **every command of the caller** (lint, test, build, infra, post-deploy) as the variable `NEXTEP_GUARDRAILS_MODE` (`enforce` | `warn`), set by `scripts/run-command.sh`
+from `APP_ENV`. `@nextep/cdk-guardrails` `0.3.0` honors it: with `warn` the plugin inside `cdk deploy` and the Jest helper report their `error` rules as warnings and do not break the command, so a
+hotfix to prod is not stopped from inside. Exceptions broken on purpose (`NX-EXC-00x`) fail in both modes. A caller cannot pre-set the variable: the platform overrides it.
+
+`lego-aws-environment-deploy` did not have the evidence before: its gate installs the project when there is a `lint-command`, a `test-command` **or** a `root-kinds`, so the policy has
+`node_modules` and lockfiles to read.
+
+### 12.3 Reading a ❌ or a ⚠️
+
+| You see | Meaning | Action |
+|---|---|---|
+| `PF-1 ... has not opted in` | no `root-kinds` | Declare the kind of every root: a back or a front declares two (`{".":"backend","infra":"iac"}`) |
+| `PF-2 ... is an install root with no declared kind` | a root of `install-dirs` is not inside any declared root | Declare it in `root-kinds` |
+| `PF-3 ... does not declare @nextep/<pkg>` | the root of that kind lacks the package | Add the dependency (Release URL) and reinstall |
+| `PF-4 ... has CDK files but is not declared iac` | a CDK app hides under another kind | Declare it `iac` |
+| `PF-5 the guardrails check is red` | the guard found a violation, or crashed | Run `make guardrails` locally; fix the rule or declare a dated exception in the package's way |
+| `PF-6 ... is not installed` | the root has no lockfile or `node_modules` | Add the root to `install-dirs` |
+| `PF-7 ... guard did not run` | `guardrails-command` is empty or the target does not exist | Add the `guardrails` target (or pass the command) in a repository that has an IaC root |
+| `PF-8 <pkg> <v> is below the minimum <m>` | the lockfile resolves an old version | Upgrade the package (it also unblocks prod from warning) |
+| `PF-9 ... below the recommended` | newer version available | Upgrade when you can; nothing blocks |
+| `the policy could not be evaluated` | a malformed `root-kinds`, a missing profile or `yq` | Fix the input; in prod it only warns |
+
+### 12.4 Adopting it in a repository (one PR)
+
+1. Change the caller to `@v2`. **Before**, the trust policy of every cloud role whose `job_workflow_ref` pins the workflow must list `@refs/tags/v2` (**in addition to** `v1`, never instead:
+   `v1` stays alive for whoever does not migrate). A deploy that pins `@v2` with the trust policy not updated is **denied**; see `docs/iam/README.md`.
+2. Declare `root-kinds` (and `install-dirs` with every root).
+3. Give the repository a `guardrails` target (`make guardrails`) or pass `guardrails-command`.
+4. Adopt `@nextep/cdk-guardrails` in the `infra/` of the repository, at `0.3.0` or later.
+
+A repository that only deploys `prod` (no `dev` or `stg`) is always in warn mode: for it the policy shows warnings and has no teeth. That is a consequence of "prod never blocks".
+
+### 12.5 The catalog: minimum and recommended version of each package
+
+`contracts/package-profiles.yml` has, next to the kinds, a catalog `packages:` with `min_version` and `recommended_version` (plain `X.Y.Z`, `recommended >= min`) per package. It is read
+**only** from there: it travels with the tag (no network, reproducible), and no input overrides it. It is compared with the version **resolved in the lockfile**; a version that cannot be
+compared (a prerelease, a URL) is PF-8 (fail-closed); an in-repo (`workspace`) package is skipped. The gate `RK-PROFILES` checks the file.
+
+**Releasing a package so the repositories that use it find out, without touching them** (two releases: the package and the platform):
+
+- [ ] 1. Release the package in its repository (its own flow, unchanged).
+- [ ] 2. PR in this repository: raise `recommended_version` (and `min_version` only to **force** an upgrade), with the evidence of why. It is a reviewed change.
+- [ ] 3. Release this repository (`release.yml`, `dry_run` first): the catalog is a data contract, so it counts as surface.
+- [ ] 4. On their next run, every repository on `@v2` shows `⚠️` below `recommended_version` in all environments, and `❌` in dev and stg below `min_version`.
+
+Raising `min_version` puts **every** repository below it in red in dev and stg **without that repository having changed anything**; a published release is not undone, it is fixed with the next
+one. The normal push is `recommended_version`; `min_version` is reserved for forcing.
+
+### 12.6 What it does not do
+
+- It defines no package for `backend`, `frontend` or `platform` (they stay `required: []`; a package joins a list with evidence of adoption).
+- `lego-node-ci`, `lego-package-release`, `lego-aws-package-publish` and `lego-aws-image-publish` have no environment and stay in report mode.
+- A defect of pinning in a package nobody requires (a range, an origin that is not a Release) is red in the block but is **not** a finding of the policy.
+- A `Makefile` can reassign `NEXTEP_GUARDRAILS_MODE` inside its own recipe. The independent net is the guard step: the platform runs it and maps the result with its own mode.
+
+### 12.7 NOT VERIFIED
+
+- **Not exercised on GitHub.** Everything is verified with fixtures and fake binaries (bats and gates in red). The first real run of a caller on `@v2` is the check: the `Mode` row, the annotations,
+  the table in the summary, and that a red guard in dev stops the migration and the deploy.
+- The behaviour of GitHub with more than 10 `::warning::` annotations in a step (the table of the summary is the complete list).
+- That `make guardrails` of a real repository runs offline on `ubuntu-latest`.
+- That `yq` is on the runner (inherited from the evidence).
+- The trust policies of the cloud accounts that pin `job_workflow_ref` to `@refs/tags/v1` have not been inventoried by this repository.
+- The warn mode of prod cannot be exercised safely with a real deploy: it is covered by the tests until the first real deploy to prod.

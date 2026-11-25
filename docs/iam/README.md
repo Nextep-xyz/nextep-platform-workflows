@@ -67,3 +67,10 @@ role and **not** the publishing role.
 - `ecr:GetAuthorizationToken` is the only action with `Resource: "*"` (ECR has no resource-level scope for it). The set of push actions (`BatchCheckLayerAvailability`, `InitiateLayerUpload`,
   `UploadLayerPart`, `CompleteLayerUpload`, `PutImage`) plus `DescribeImages` and `BatchGetImage` is pinned by a test. **`BatchGetImage` is required** and was found by a first real run: `docker push` (buildx) issues a `HEAD` on the manifest by digest after uploading the layers, and without it the push ends in `403 Forbidden`. The rest of the set still comes from the AWS documentation and is **NOT VERIFIED** beyond that run.
 - Same status as the others for `job_workflow_ref` as an IAM condition (**NOT VERIFIED**, [ADR 0001](../adr/0001-s1-job-workflow-ref-in-iam.md)).
+
+## Moving to a new major (`v2.0.0`): update the trust policies FIRST
+
+A trust policy that pins `job_workflow_ref` names the workflow at a tag (`@refs/tags/v1`). A caller that moves to `@v2` presents `@refs/tags/v2`, so with the trust policy not updated its
+deploy is **denied**. The order is always: (1) list `@refs/tags/v2` in every role that pins the workflow, **in addition to** `@refs/tags/v1` (never instead: `v1` stays alive for whoever
+does not migrate, and adding an entry is reversible); (2) release; (3) change the callers. The examples in this directory list both. The image publishing example pins an exact tag
+(`vX.Y.Z`) and is updated with the release that the consumer pins.
