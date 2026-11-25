@@ -22,6 +22,11 @@
 #                       with CDK files that is not declared iac is red too. A required package that is missing marks the block red; it never
 #                       fails the job.
 #      VALIDATIONS      one `<label>=<outcome>` per line; outcome is steps.<id>.outcome (success | failure | cancelled | skipped)
+#                       The package guard reports its REAL result instead (steps.<id>.outputs.result: pass | fail | warn | missing | skipped): in warn mode
+#                       its step succeeds, so its outcome would hide the violation.
+#      ENVIRONMENT      optional (dev | stg | prod). Only names the mode (lib/enforcement.sh) in a Mode row and decides whether a red policy axis is a
+#                       blocker (enforce: ❌ FAILED) or a warning (warn: ⚠️ NOT GREEN, not blocking). A failed validation is ❌ whatever the mode. Empty
+#                       keeps the block exactly as it was.
 #      ACTION_REPOSITORY ACTION_REF  github.action_repository and github.action_ref of the composite that runs this script: the platform code
 #                       that ran (the ref is the commit a release pins). Both present -> `<repository>@<ref>`; either missing -> `not available`.
 #                       github.job_workflow_ref is NOT a source: it is a claim of the OIDC token, not a property of the github context (empty in
@@ -44,6 +49,8 @@ source "$here/lib/semver.sh"
 source "$here/lib/safe-text.sh"
 # shellcheck source=lib/guardrails.sh
 source "$here/lib/guardrails.sh"
+# shellcheck source=lib/enforcement.sh
+source "$here/lib/enforcement.sh"
 PROFILES_FILE="$here/../contracts/package-profiles.yml"
 
 # A package is distributed as the tarball of a GitHub Release (lego-package-release). Anything else is not Release evidence.
@@ -485,7 +492,11 @@ render() {
   ((!kinds_mode)) || proof=$req_ok
 
   # --- validations: the REAL outcome of the steps, never a fixed text -----------------------------------------------------------------
-  local val_labels=() val_marks=() val_bad=0 val_skipped=0 val_ok=0 label outcome mark
+  local val_labels=() val_marks=() val_bad=0 val_skipped=0 val_ok=0 val_warn=0 label outcome mark ev_mode="" env_shown=""
+  if [[ -n ${ENVIRONMENT:-} ]]; then
+    ev_mode="$(enforcement_mode "$ENVIRONMENT")"
+    env_shown="$(safe_path "$ENVIRONMENT")"
+  fi
   if [[ -n ${VALIDATIONS:-} ]]; then
     while IFS= read -r line || [[ -n $line ]]; do
       [[ -n ${line//[[:space:]]/} ]] || continue
@@ -493,9 +504,23 @@ render() {
       outcome=""
       [[ $line != *=* ]] || outcome="${line#*=}"
       case "$outcome" in
-        success)
+        success | pass)
           val_ok=$((val_ok + 1))
           mark="✅ passed"
+          ;;
+        warn)
+          val_warn=$((val_warn + 1))
+          mark="⚠️ failed, not blocking in this environment"
+          ;;
+        fail | missing)
+          # the guard is red: a blocker in enforce mode, a warning in warn mode (the same decision as the policy, from the same function)
+          if [[ $ev_mode == warn ]]; then
+            val_warn=$((val_warn + 1))
+            mark="⚠️ ${outcome/fail/FAILED} (not blocking in $env_shown)"
+          else
+            val_bad=$((val_bad + 1))
+            mark="❌ ${outcome/fail/FAILED}"
+          fi
           ;;
         skipped)
           val_skipped=$((val_skipped + 1))
@@ -518,7 +543,7 @@ render() {
       val_marks+=("$mark")
     done <<<"$VALIDATIONS"
   fi
-  local nval=$((val_ok + val_skipped + val_bad))
+  local nval=$((val_ok + val_skipped + val_bad + val_warn))
   # A block wired to no validation says nothing about them: that is a defect of the workflow, shown as one (never a quiet pass).
   if ((nval == 0)); then val_bad=1; fi
 
@@ -528,8 +553,10 @@ render() {
   # of kinds that require nothing is n/a with its reason, whatever else the repository declares: a package nobody asked for proves nothing.
   # A required package that is missing, and an undeclared IaC root, are red like any red row (req_bad); none of this ever fails the job.
   local verdict
-  if ((bad > 0 || val_bad > 0 || req_bad > 0)); then
+  if ((val_bad > 0)) || { [[ $ev_mode != warn ]] && ((bad > 0 || req_bad > 0)); }; then
     verdict="❌ FAILED"
+  elif ((bad > 0 || req_bad > 0 || val_warn > 0)); then
+    verdict="⚠️ NOT GREEN (not blocking in $env_shown)"
   elif ((kinds_mode ? req_defined == 0 : evidenced == 0)); then
     verdict="n/a"
   elif ((val_skipped > 0)); then
@@ -558,6 +585,14 @@ render() {
     printf '| Platform | %s |\n' "$(code "${ACTION_REPOSITORY}@${ACTION_REF}")"
   else
     printf '| Platform | not available |\n'
+  fi
+  # The mode of the packages policy in this environment (only when the workflow says which one it is)
+  if [[ -n $ev_mode ]]; then
+    if [[ $ev_mode == warn ]]; then
+      printf '| Mode | %s in %s (the policy reports and never blocks the delivery) |\n' "$(code "$ev_mode")" "$(code "$env_shown")"
+    else
+      printf '| Mode | %s in %s (the policy blocks the job) |\n' "$(code "$ev_mode")" "$(code "$env_shown")"
+    fi
   fi
   if ((kinds_mode)); then
     # With root-kinds the block is organised by kind: one section per declared root, with what that kind requires and the packages that root
@@ -633,7 +668,7 @@ render() {
       printf '| %s | %s |\n' "$(code "${val_labels[$i]}")" "$mark"
     done
   fi
-  if ((bad > 0 || val_bad > 0 || req_bad > 0)); then printf '\n%s\n' "$NOT_GREEN_MARKER"; fi
+  if ((bad > 0 || val_bad > 0 || req_bad > 0 || val_warn > 0)); then printf '\n%s\n' "$NOT_GREEN_MARKER"; fi
 }
 
 # --- run: render in a child process (its own errexit), append only a COMPLETE block, never fail the job --------------------------------

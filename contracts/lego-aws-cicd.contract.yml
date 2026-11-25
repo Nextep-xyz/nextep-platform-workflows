@@ -176,6 +176,10 @@ inputs:
   root-kinds:
     type: string
     default: ""
+  # the command of the package guard (docs/runbook.md section 12); the mode of the policy comes from the environment alone
+  guardrails-command:
+    type: string
+    default: "make guardrails"
 secrets: {}
 outputs: {}
 jobs:

@@ -13,8 +13,12 @@ inputs:
     description: "The kind of each root, as a JSON object {\"<root>\": \"<kind>\"} (already validated by the workflow). Empty keeps the evidence of what the repository declares. Never a secret: it is a map of paths to kinds."
     required: false
     default: ""
+  environment:
+    description: "The environment of the run (dev, stg or prod). It only decides how the block names its mode (enforce or warn, from scripts/lib/enforcement.sh) and whether a red policy axis is shown as a blocker or as a warning; it never changes what is read. Empty keeps the block as it was (no Mode row)."
+    required: false
+    default: ""
   validations:
-    description: "One `<label>=<outcome>` per line, where the outcome is `steps.<id>.outcome` of the validation step. A fixed value defeats the purpose (gate PE-OUTCOME)."
+    description: "One `<label>=<result>` per line, where the result is `steps.<id>.outcome` of a validation step, or `steps.<id>.outputs.result` of the package-guardrails step (pass, fail, warn, missing or skipped). A fixed value defeats the purpose (gate PE-OUTCOME)."
     required: true
 runs:
   using: composite
@@ -28,6 +32,7 @@ runs:
         INSTALL_DIRS: ${{ inputs.install-dirs }}
         PACKAGE_MANAGER: ${{ inputs.package-manager }}
         ROOT_KINDS: ${{ inputs.root-kinds }}
+        ENVIRONMENT: ${{ inputs.environment }}
         VALIDATIONS: ${{ inputs.validations }}
         # The platform code that runs this step (its own action context, not the OIDC claim job_workflow_ref, which the github context lacks).
         ACTION_REPOSITORY: ${{ github.action_repository }}

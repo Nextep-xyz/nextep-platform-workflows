@@ -1,0 +1,17 @@
+# Fictional caller (project "shop") that has NOT opted in: no `root-kinds`. With `environment: dev` the packages policy blocks the gate job
+# (finding PF-1, which says what to declare); the same caller with `environment: prod` only warns. The bats test of the policy reads this file
+# to prove it (test/bats/packages-policy.bats): there is no cloud here, so the step is simulated from the caller's own inputs.
+name: cicd
+on:
+  push:
+    branches: [develop]
+permissions: { id-token: write, contents: read, pull-requests: write }
+jobs:
+  cicd:
+    uses: example-org/nextep-platform-workflows/.github/workflows/lego-aws-cicd.yml@v1
+    with:
+      project: shop
+      environment: dev
+      compute: lambda
+      role-arn: ${{ vars.AWS_ROLE_ARN_DEV }}
+      deploy-command: pnpm --filter infra run deploy:ci

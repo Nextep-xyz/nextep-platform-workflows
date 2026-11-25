@@ -349,3 +349,20 @@ run_policy() { # run_policy <environment>
   [ "$status" -eq 1 ]
   ! grep -qE '^::error::pwned' <<<"$output"
 }
+
+# --- acceptance of the wiring: a caller of the sandbox ---------------------------------------------------------------------------------------------
+@test "a sandbox caller with environment dev and no root-kinds FAILS with the message of PF-1, and the same caller in prod only warns" {
+  local caller="$REPO_ROOT/test/sandbox/callers/cicd-no-opt-in.yml" env_in kinds_in
+  env_in="$(yq -r '.jobs.cicd.with.environment' "$caller")"
+  kinds_in="$(yq -r '.jobs.cicd.with["root-kinds"] // ""' "$caller")"
+  [ "$env_in" = dev ]
+  [ -z "$kinds_in" ]
+  good_repo
+  unset ROOT_KINDS
+  ROOT_KINDS="$kinds_in" run_policy "$env_in"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"::error title=PF-1::"*"has not opted in. Declare the kind of every root with the input 'root-kinds'"* ]]
+  ROOT_KINDS="$kinds_in" run_policy prod
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"::warning title=PF-1::"* ]]
+}
