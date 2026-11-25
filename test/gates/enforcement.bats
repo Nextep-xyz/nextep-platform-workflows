@@ -327,3 +327,21 @@ step_indexes() {
   fi
   gate_finish EN-SAFE-GUARD
 }
+
+@test "EN-DOC: every finding the policy can print (PF-n of packages-policy.sh) is explained in the runbook (section 12), and the runbook and AGENTS.md name the function and the environment-based mode" {
+  local id n=0 ids doc=docs/runbook.md
+  gate_discover EN-DOC "$POLICY_SCRIPT" -type f
+  GATE_VIOLATIONS=()
+  ids="$(code_lines "$POLICY_SCRIPT" | grep -oE '^    PF-[0-9]+\)' | tr -d ' )' | sort -u)"
+  while IFS= read -r id; do
+    [[ -n $id ]] || continue
+    n=$((n + 1))
+    grep -qF "**$id**" "$GATES_ROOT/$doc" 2>/dev/null || gate_violation "$doc" "section 12 does not explain the finding $id (a row '| **$id** ... |' in the table of 12.1): the policy can print it"
+    grep -qF "$id" "$GATES_ROOT/$doc" 2>/dev/null || true
+  done <<<"$ids"
+  ((n > 0)) || gate_violation "$POLICY_SCRIPT" "has no message for any finding (PF-n) (a gate that finds nothing proves nothing)"
+  grep -q '^## 12\. ' "$GATES_ROOT/$doc" 2>/dev/null || gate_violation "$doc" "has no section '## 12.' for the packages policy"
+  grep -q 'enforcement_mode' "$GATES_ROOT/AGENTS.md" 2>/dev/null || gate_violation "AGENTS.md" "does not name enforcement_mode, the single function environment -> mode"
+  grep -qE 'TODO' "$GATES_ROOT/$doc" 2>/dev/null && gate_violation "$doc" "has a TODO"
+  gate_finish EN-DOC
+}

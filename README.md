@@ -21,7 +21,7 @@ Cuando cada repo copia su pipeline, el mismo "desplegar un ambiente" existe N ve
 literales en el YAML, túneles con la verificación de TLS apagada, pipelines sin `concurrency` o sin rollback.
 Cada copia envejece sola.
 
-La regla: **el pipeline se escribe una vez, aquí, y los proyectos lo invocan por versión** (`@v1`). Un proyecto
+La regla: **el pipeline se escribe una vez, aquí, y los proyectos lo invocan por versión** (`@v2`). Un proyecto
 solo declara *qué* es (ambiente, servicio, rol) y **no** *cómo* se construye, se prueba y se despliega.
 
 - Corregir un bug del pipeline = un release aquí, no 30 PRs.
@@ -39,9 +39,9 @@ flowchart LR
         RUN["Runner<br/>(cómputo y minutos de ESTA org)"]
     end
     subgraph PLAT["nextep-platform-workflows"]
-        W["Workflows reutilizables<br/>@v1 (inmutable)"]
+        W["Workflows reutilizables<br/>@v2 (inmutable)"]
     end
-    R -->|"uses: ...@v1"| W
+    R -->|"uses: ...@v2"| W
     W -->|"la lógica se ejecuta en"| RUN
     RUN -->|"OIDC (sin llaves)"| CLOUD["AWS / Azure<br/>cuenta del proyecto"]
     RUN -->|"métricas DORA"| COL["Colector configurable<br/>(opcional)"]
@@ -103,7 +103,7 @@ compartidos); el job no hace checkout, no ejecuta comandos tuyos y no tiene cred
 - **Qué no se envía:** código, diffs, secretos, variables de entorno, logs, **ni quién lanzó el run**.
 - **Nunca rompe un deploy:** si el colector no responde, el pipeline sigue en verde (el job y su paso no fallan el run). Para reenviar:
   *Re-run job* `telemetry-phone-home`.
-- **Llámalo por tag** (`@v1` o `@vX.Y.Z`): el colector solo acepta tokens emitidos por un workflow de este repo en un tag.
+- **Llámalo por tag** (`@v2` o `@vX.Y.Z`): el colector solo acepta tokens emitidos por un workflow de este repo en un tag.
 - Diseño completo: `docs/specs/telemetria-dora/SPEC.md`.
 
 ---
@@ -122,3 +122,7 @@ nextep-platform-workflows/
 ├── test/               bats, gates por disco, fixtures, sandbox/callers
 └── docs/               adr/ (spikes), iam/, parity/ (matriz), exceptions.yml, runbook.md
 ```
+
+## Política de paquetes `@nextep/*` por ambiente (`v2.0.0`)
+
+Desde `v2.0.0`, `lego-aws-cicd` y `lego-aws-environment-deploy` **exigen** la evidencia de paquetes según el ambiente: en `dev` y `stg` un repo sin `root-kinds`, con un paquete requerido faltante o con el guard de paquetes en rojo **no despliega**; en `prod` los mismos hallazgos son **warning** y nunca frenan la entrega (hotfix y rollback incluidos). El modo sale solo del input `environment`: no existe ningún input que lo apague o lo baje. Qué se evalúa, cómo leer un ❌/⚠️, cómo adoptar y cómo se sube el mínimo de un paquete: `docs/runbook.md` sección 12. Un major exige actualizar antes las trust policies (`docs/iam/README.md`); `v1` sigue disponible y no se mueve.

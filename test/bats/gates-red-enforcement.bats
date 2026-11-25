@@ -19,6 +19,8 @@ en_fixture() {
   cp -r "$REPO_ROOT/.github/workflows" "$FX/.github/workflows"
   cp "$REPO_ROOT"/contracts/*.yml "$FX/contracts/"
   cp "$REPO_ROOT/docs/exceptions.yml" "$FX/docs/exceptions.yml"
+  cp "$REPO_ROOT/docs/runbook.md" "$FX/docs/runbook.md"
+  cp "$REPO_ROOT/AGENTS.md" "$FX/AGENTS.md"
   POLICY="$FX/scripts/packages-policy.sh"
   POLICY_ACTION="$FX/.github/actions/nextep-packages-policy/action.yml"
   GUARD_ACTION="$FX/.github/actions/package-guardrails/action.yml"
@@ -438,4 +440,36 @@ YAML
   en_fixture
   yq -i '(.jobs["quality-and-security-gate"].steps[] | select(.name == "Set up the project")).if = "${{ inputs.lint-command != '"''"' || inputs.test-command != '"''"' }}"' "$ENVDEP"
   red enforcement.bats "lego-aws-environment-deploy.yml: job 'quality-and-security-gate': the policy needs the project installed"
+}
+
+# ---- F4: the docs say what the code does ----------------------------------------------------------------------------------------------------------
+@test "EN-DOC red: a finding the policy can print that the runbook does not explain, a missing section 12, an AGENTS.md without the function and a TODO are named; no policy script is '0 subjects'" {
+  en_fixture
+  mkdir -p "$FX/docs"
+  cp "$REPO_ROOT/docs/runbook.md" "$FX/docs/runbook.md"
+  cp "$REPO_ROOT/AGENTS.md" "$FX/AGENTS.md"
+  run bats --filter '^EN-DOC:' "$REPO_ROOT/test/gates/enforcement.bats"
+  [ "$status" -eq 0 ] || { echo "the clean fixture must pass: $output"; return 1; }
+
+  sed -i 's/\*\*PF-4\*\*/PF-4/g' "$FX/docs/runbook.md"
+  run bats --filter '^EN-DOC:' "$REPO_ROOT/test/gates/enforcement.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"docs/runbook.md: section 12 does not explain the finding PF-4"* ]] || { echo "$output"; return 1; }
+
+  cp "$REPO_ROOT/docs/runbook.md" "$FX/docs/runbook.md"
+  sed -i 's/^## 12\. /## Twelve. /' "$FX/docs/runbook.md"
+  run bats --filter '^EN-DOC:' "$REPO_ROOT/test/gates/enforcement.bats"
+  [[ "$output" == *"docs/runbook.md: has no section '## 12.'"* ]] || { echo "$output"; return 1; }
+
+  cp "$REPO_ROOT/docs/runbook.md" "$FX/docs/runbook.md"
+  printf '\nTODO write this\n' >>"$FX/docs/runbook.md"
+  sed -i 's/enforcement_mode/the_function/g' "$FX/AGENTS.md"
+  run bats --filter '^EN-DOC:' "$REPO_ROOT/test/gates/enforcement.bats"
+  [[ "$output" == *"AGENTS.md: does not name enforcement_mode"* && "$output" == *"docs/runbook.md: has a TODO"* ]] || { echo "$output"; return 1; }
+
+  rm -rf "$FX"
+  mkdir -p "$FX"
+  run bats --filter '^EN-DOC:' "$REPO_ROOT/test/gates/enforcement.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"0 subjects discovered"* ]] || { echo "$output"; return 1; }
 }
