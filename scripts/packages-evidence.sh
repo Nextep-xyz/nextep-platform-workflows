@@ -6,6 +6,15 @@
 #                                 the job: if the rendering itself breaks, the summary gets a red block saying so (never nothing, never green)
 #                                 and a ::warning:: is emitted. A report must not turn a good CI red, nor hide a red one.
 #   packages-evidence.sh render   prints the Markdown block to stdout and exits non-zero on an internal error (used by `run` and by the tests).
+#   packages-evidence.sh findings prints the verdict for the packages policy (scripts/packages-policy.sh) as a JSON array
+#                                 [{id, root, kind, package?, version?, min?, recommended?, detail}], from the SAME reading of the disk as
+#                                 `render` (one function, two outputs: the block and the verdict cannot disagree). It does not depend on the
+#                                 environment (dev, stg, prod): the mode is decided by the policy, never here. Ids: PF-1 no root-kinds, PF-2 an
+#                                 install root without a declared kind, PF-3 a required package missing, PF-4 CDK files in a root not declared
+#                                 iac, PF-5 the installed guardrails package lists no rules, PF-6 a root not installed, PF-8 a package of the
+#                                 catalog below its min_version, PF-9 below its recommended_version. (PF-5 from the guard step and PF-7 are
+#                                 decided by the policy from the result of that step.) Exits non-zero on an internal error.
+#   packages-evidence.sh iac-roots prints the IaC roots (declared iac, or detected by CDK files), one per line.
 # Env: INSTALL_DIRS (default ".") PACKAGE_MANAGER (npm | pnpm, default pnpm)
 #      ROOT_KINDS       optional JSON object {"<root>": "<kind>"} (iac | backend | frontend | platform). Empty = the evidence of what the repository
 #                       declares, exactly as before. Set = what each kind REQUIRES (contracts/package-profiles.yml) against what the repository
@@ -29,6 +38,12 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$here/lib/common.sh"
 # shellcheck source=lib/root-kinds.sh
 source "$here/lib/root-kinds.sh"
+# shellcheck source=lib/semver.sh
+source "$here/lib/semver.sh"
+# shellcheck source=lib/safe-text.sh
+source "$here/lib/safe-text.sh"
+# shellcheck source=lib/guardrails.sh
+source "$here/lib/guardrails.sh"
 PROFILES_FILE="$here/../contracts/package-profiles.yml"
 
 # A package is distributed as the tarball of a GitHub Release (lego-package-release). Anything else is not Release evidence.
@@ -37,10 +52,8 @@ RELEASE_URL_RE="^https://${GITHUB_HOST_RE}/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/relea
 EXACT_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
 NAME_RE='^@nextep/[a-z0-9][a-z0-9._-]*$'
 RULE_ID_RE='^[A-Za-z][A-Za-z0-9]*(-[A-Za-z0-9]+)+$'
-# The one package whose binary output is evidence (package -> binary). It is the contract of the evidence, not a list of what to look at:
-# the dependencies themselves are discovered on disk.
-GUARDRAILS_PACKAGE='@nextep/cdk-guardrails'
-GUARDRAILS_BIN='nextep-guardrails'
+# The package whose binary output is evidence (GUARDRAILS_PACKAGE, GUARDRAILS_BIN: lib/guardrails.sh, shared with the policy). It is the contract of
+# the evidence, not a list of what to look at: the dependencies themselves are discovered on disk.
 SEP=$'\x1f' # jq output separator: not whitespace, so an empty field survives `read`
 NOT_GREEN_MARKER='<!-- evidence:not-green -->'
 TICK=$'\x60' # a backtick, kept out of single-quoted strings
@@ -61,6 +74,33 @@ join_by() { # join_by <separator> <item>...
   done
   printf '%s' "$out"
 }
+# --- findings: the verdict of the policy, collected by the same code that renders the block -----------------------------------------------
+# PE_EMIT (set by the subcommand) is `render` (the block, the default), `findings` or `iac-roots`: the last two read the disk exactly as `render`
+# does and print the verdict instead of the Markdown.
+PE_EMIT=render # reassigned here on purpose: a value imported from the environment never changes what the script does
+FINDINGS=()
+declare -A FINDING_SEEN=()
+# add_finding <id> <root> <kind> <package> <version> <min> <recommended> <detail>: one finding per (id, root, package, version). Everything that comes
+# from the repository is reduced to a safe alphabet here, so no consumer of the JSON receives markup.
+add_finding() {
+  local key="$1|$2|$4|$5"
+  [[ -z ${FINDING_SEEN[$key]:-} ]] || return 0
+  FINDING_SEEN[$key]=1
+  FINDINGS+=("$(jq -cn --arg id "$1" --arg root "$(safe_path "$2")" --arg kind "$(safe_name "$3")" --arg pkg "$(safe_name "$4")" \
+    --arg ver "$(safe_version "$5")" --arg min "$(safe_version "$6")" --arg rec "$(safe_version "$7")" --arg detail "$(safe_detail "$8")" \
+    '{id: $id, root: $root, kind: $kind}
+     + (if $pkg != "" then {package: $pkg} else {} end) + (if $ver != "" then {version: $ver} else {} end)
+     + (if $min != "" then {min: $min} else {} end) + (if $rec != "" then {recommended: $rec} else {} end)
+     + {detail: $detail}')")
+}
+print_findings() {
+  if ((${#FINDINGS[@]} == 0)); then
+    printf '[]\n'
+  else
+    printf '%s\n' "${FINDINGS[@]}" | jq -s 'sort_by(.id, .root, (.package // ""), (.version // ""))'
+  fi
+}
+
 # --- roots: a directory belongs to the most specific root that contains it ------------------------------------------------------------
 in_root() { # in_root <dir> <root>: the directory is the root or lives under it ('.' contains everything)
   [[ $2 == . || $1 == "$2" || $1 == "$2"/* ]]
@@ -116,15 +156,35 @@ render() {
 
   # root-kinds (optional): the declared roots and the policy of each kind. Empty = the evidence of v1.7.0, untouched.
   local kinds_mode=0 scan_roots=("${roots[@]}") kind_roots=() kroot lock_root r1 pair problems_rk
-  declare -A kind_of=() required_of=() req_state=() lock_cache=() seen_manifest=() cdk_dirs=()
+  declare -A kind_of=() required_of=() req_state=() lock_cache=() seen_manifest=() cdk_dirs=() nolock_root=() min_of=() rec_of=()
   local ignored=0 profile_json="$work/profiles.json" kind_name
+  # `findings` and `iac-roots` read the disk like the block does and also need the profile (the catalog) when no root-kinds is declared
+  local findings_mode=0 cat_name cat_min cat_rec
+  [[ $PE_EMIT == render ]] || findings_mode=1
+  FINDINGS=()
+  FINDING_SEEN=()
   if [[ -n ${ROOT_KINDS:-} ]]; then
     kinds_mode=1
     problems_rk="$(root_kinds_problems "$ROOT_KINDS")"
     [[ -z $problems_rk ]] || die "packages-evidence: ${problems_rk%%$'\n'*}"
+  fi
+  if ((kinds_mode || findings_mode)); then
     [[ -f $PROFILES_FILE ]] || die "packages-evidence: the profile file contracts/package-profiles.yml does not exist"
     command -v yq >/dev/null || die "packages-evidence: yq is required to read the package profiles"
     yq -o=json '.' "$PROFILES_FILE" >"$profile_json" 2>/dev/null || die "packages-evidence: contracts/package-profiles.yml is not valid YAML"
+  fi
+  if ((findings_mode)); then
+    # the catalog: minimum and recommended version of each package, read ONLY from the profile that travels with the tag (no network, no input)
+    while IFS="$SEP" read -r cat_name cat_min cat_rec; do
+      [[ -n $cat_name ]] || continue
+      if ! semver_valid "$cat_min" || ! semver_valid "$cat_rec"; then
+        die "packages-evidence: the catalog entry '$(safe_name "$cat_name")' of contracts/package-profiles.yml needs min_version and recommended_version as X.Y.Z"
+      fi
+      min_of[$cat_name]="$cat_min"
+      rec_of[$cat_name]="$cat_rec"
+    done < <(jq -r '(.packages // {}) | to_entries[] | [.key, (.value.min_version // ""), (.value.recommended_version // "")] | join("\u001f")' "$profile_json")
+  fi
+  if ((kinds_mode)); then
     while IFS="$SEP" read -r r1 kind_name; do
       kind_roots+=("$r1")
       kind_of[$r1]="$kind_name"
@@ -141,7 +201,7 @@ render() {
   local v res_version res_integrity res_tarball link found rkey bin out rc ids line id shown version_cell evidenced=0 prev cdk
   for root in "${scan_roots[@]}"; do
     [[ -d $root ]] || continue
-    if ((kinds_mode)); then
+    if ((kinds_mode || findings_mode)); then
       # a directory with CDK files is an IaC root whatever it was declared as (K3): looked up on disk, by file name
       while IFS= read -r -d '' cdk; do cdk="${cdk#./}"; cdk_dirs[$(dirname "$cdk")]=1; done < <(find "$root" \( -name node_modules -o -name .git -o -name cdk.out \) -prune -o -type f -name cdk.json -print0 | sort -z)
     fi
@@ -195,7 +255,7 @@ render() {
         rows+=("| — | $(code "$m") | — | — | — | — | ❌ the manifest is not valid JSON |"); row_root+=("$kroot")
         continue
       fi
-      if ((kinds_mode)) && jq -e '[.dependencies, .devDependencies, .peerDependencies, .optionalDependencies] | map(select(type == "object") | has("aws-cdk-lib")) | any' "$m" >/dev/null 2>&1; then
+      if ((kinds_mode || findings_mode)) && jq -e '[.dependencies, .devDependencies, .peerDependencies, .optionalDependencies] | map(select(type == "object") | has("aws-cdk-lib")) | any' "$m" >/dev/null 2>&1; then
         cdk_dirs[$mdir]=1
       fi
       while IFS="$SEP" read -r section name spec; do
@@ -219,6 +279,7 @@ render() {
         # 2. what the lockfile resolved
         if [[ -z $lockjson ]]; then
           problems+=("no lockfile ($lock_root/$lock)")
+          [[ -z $kroot ]] || nolock_root[$kroot]=1
         elif [[ $lockjson == UNREADABLE ]]; then
           problems+=("the lockfile is unreadable")
         elif [[ $exact != workspace ]]; then
@@ -248,6 +309,23 @@ render() {
           elif [[ $exact != workspace ]]; then
             [[ $origin =~ $RELEASE_URL_RE ]] || problems+=("origin is not a GitHub Release URL")
             [[ -n $integrity ]] || problems+=("no integrity in the lockfile")
+          fi
+        fi
+
+        # the catalog (PF-8 / PF-9): every @nextep/* package in use that the catalog knows, required by its kind or not. An in-repo package has
+        # no version to compare; one that the lockfile does not resolve is already a red row (and PF-3 / PF-6 when a kind requires it).
+        if ((findings_mode)) && [[ $exact != workspace && -n $version && -n ${min_of[$name]:-} ]]; then
+          kind_name=""
+          [[ -z $kroot ]] || kind_name="${kind_of[$kroot]}"
+          if ! semver_valid "$version"; then
+            add_finding PF-8 "${kroot:-$mdir}" "$kind_name" "$name" "$version" "${min_of[$name]}" "${rec_of[$name]}" \
+              "the resolved version is not a plain X.Y.Z (a prerelease or anything else cannot be compared), the minimum is ${min_of[$name]}"
+          elif semver_lt "$version" "${min_of[$name]}"; then
+            add_finding PF-8 "${kroot:-$mdir}" "$kind_name" "$name" "$version" "${min_of[$name]}" "${rec_of[$name]}" \
+              "the installed version is below the minimum ${min_of[$name]}"
+          elif semver_lt "$version" "${rec_of[$name]}"; then
+            add_finding PF-9 "${kroot:-$mdir}" "$kind_name" "$name" "$version" "${min_of[$name]}" "${rec_of[$name]}" \
+              "the installed version is below the recommended ${rec_of[$name]}"
           fi
         fi
 
@@ -282,6 +360,7 @@ render() {
           bin="$mdir/node_modules/.bin/$GUARDRAILS_BIN"
           if [[ ! -x $bin ]]; then
             bad=$((bad + 1))
+            add_finding PF-6 "${kroot:-$mdir}" "${kroot:+${kind_of[$kroot]:-}}" "$name" "" "" "" "the installed binary $GUARDRAILS_BIN does not exist: the root is not installed"
             guard_rows+=("| $(code "$name") | $(code "$mdir") | — | ❌ not installed: $(code "$bin") does not exist |"); guard_root+=("$kroot")
           else
             out="" rc=0 ids=()
@@ -292,9 +371,11 @@ render() {
             done <<<"$out"
             if ((rc != 0)); then
               bad=$((bad + 1))
+              add_finding PF-5 "${kroot:-$mdir}" "${kroot:+${kind_of[$kroot]:-}}" "$name" "" "" "" "the installed package exited with code $rc when listing its rules"
               guard_rows+=("| $(code "$name") | $(code "$mdir") | — | ❌ $(code "$GUARDRAILS_BIN --list-rules") exited with code $rc |"); guard_root+=("$kroot")
             elif ((${#ids[@]} == 0)); then
               bad=$((bad + 1))
+              add_finding PF-5 "${kroot:-$mdir}" "${kroot:+${kind_of[$kroot]:-}}" "$name" "" "" "" "the installed package listed no rules"
               guard_rows+=("| $(code "$name") | $(code "$mdir") | 0 | ❌ the command listed no rules |"); guard_root+=("$kroot")
             else
               shown="$(join_by ', ' "${ids[@]:0:100}")"
@@ -331,20 +412,28 @@ render() {
               status="✅ declared and resolved in the lockfile"
             else
               req_bad=$((req_bad + 1))
+              add_finding PF-6 "$kroot" "$kind_name" "$pkg_name" "" "" "" "the root is not installed: $kroot/node_modules does not exist"
               status="❌ not installed: $(code "$kroot/node_modules") does not exist"
             fi
             ;;
           problem)
             # the row of the package already counted as a problem; it is repeated here so the screenshot reads without scrolling
             req_bad=$((req_bad + 1))
+            if [[ -n ${nolock_root[$kroot]:-} ]]; then
+              add_finding PF-6 "$kroot" "$kind_name" "$pkg_name" "" "" "" "the root has no lockfile, so the package cannot be resolved or installed"
+            else
+              add_finding PF-3 "$kroot" "$kind_name" "$pkg_name" "" "" "" "it is declared but with a problem (not exact, not in the lockfile, not a Release or without integrity)"
+            fi
             status="❌ required by kind $kind_name and declared, but with a problem (see the packages below)"
             ;;
           workspace)
             req_bad=$((req_bad + 1))
+            add_finding PF-3 "$kroot" "$kind_name" "$pkg_name" "" "" "" "it is only declared as an in-repo package, not as a Release"
             status="❌ required by kind $kind_name, but only declared as an in-repo package (not a Release)"
             ;;
           *)
             req_bad=$((req_bad + 1))
+            add_finding PF-3 "$kroot" "$kind_name" "$pkg_name" "" "" "" "it is not declared in any package.json of the root"
             status="❌ required by kind $kind_name and not declared"
             ;;
         esac
@@ -356,12 +445,40 @@ render() {
       kr="$(longest_root "$cdir" "${kind_roots[@]}")"
       if [[ -z $kr ]]; then
         req_bad=$((req_bad + 1))
+        add_finding PF-4 "$cdir" "" "" "" "" "" "it has CDK files and no declared root contains it: declare it as iac"
         undeclared_rows+=("| $(code "$cdir") | (none) | ❌ undeclared iac root: it has CDK files and no declared root contains it |")
       elif [[ ${kind_of[$kr]} != iac ]]; then
         req_bad=$((req_bad + 1))
+        add_finding PF-4 "$cdir" "${kind_of[$kr]}" "" "" "" "" "it has CDK files and is declared ${kind_of[$kr]} (through $kr): declare it as iac"
         undeclared_rows+=("| $(code "$cdir") | ${kind_of[$kr]} (via $(code "$kr")) | ❌ undeclared iac root: it has CDK files and is not declared iac |")
       fi
     done
+  fi
+
+  # --- the verdict of the policy: the same reading as the block above, printed as data (findings) instead of Markdown -----------------------
+  if ((findings_mode)); then
+    local detected=() iac_list=() found_iac
+    for cdir in $(printf '%s\n' "${!cdk_dirs[@]}" | sort); do detected+=("$cdir"); done
+    if ((kinds_mode)); then
+      # PF-2: an install root that no declared root contains, so nobody said what it is
+      for r1 in "${roots[@]}"; do
+        [[ -n "$(longest_root "$r1" "${kind_roots[@]}")" ]] ||
+          add_finding PF-2 "$r1" "" "" "" "" "" "this install root is not inside any root declared in root-kinds: declare its kind"
+      done
+      for kroot in "${kind_roots[@]}"; do [[ ${kind_of[$kroot]} != iac ]] || iac_list+=("$kroot"); done
+    else
+      # PF-1: no opt-in. The detail names what the disk shows, so the message can say what to declare.
+      found_iac=""
+      for cdir in "${detected[@]}"; do found_iac+="${found_iac:+; }root '$(safe_path "$cdir")' has CDK files, declare it iac"; done
+      add_finding PF-1 "" "" "" "" "" "" "${found_iac:-no root-kinds declared}"
+    fi
+    iac_list+=("${detected[@]}")
+    if [[ $PE_EMIT == iac-roots ]]; then
+      if ((${#iac_list[@]} > 0)); then printf '%s\n' "${iac_list[@]}" | sort -u | while IFS= read -r line; do safe_path "$line"; printf '\n'; done; fi
+    else
+      print_findings
+    fi
+    return 0
   fi
   # what proves something: the required packages found (root-kinds) or every package evidenced (without it)
   local proof=$evidenced
@@ -540,6 +657,8 @@ run() {
 cmd="${1:-run}"
 case "$cmd" in
   render) render ;;
+  findings) PE_EMIT=findings render ;;
+  iac-roots) PE_EMIT=iac-roots render ;;
   run) run ;;
   *) die "packages-evidence: unknown subcommand '$cmd'" ;;
 esac

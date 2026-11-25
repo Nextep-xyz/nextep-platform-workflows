@@ -1,0 +1,50 @@
+name: nextep-packages-policy
+description: Applies the packages policy of the platform to the repository, by environment. In dev and stg a finding fails the step (and so the job); in prod every finding is a warning and the step succeeds. The mode comes only from the environment (scripts/lib/enforcement.sh); there is no input that relaxes it. It reads files already on disk; no network, no secret, no permission.
+inputs:
+  environment:
+    description: The environment of the run (dev, stg or prod). It decides the mode; anything else is treated as enforce.
+    required: true
+  install-dirs:
+    description: Comma separated package roots (the same value the install used).
+    required: false
+    default: "."
+  package-manager:
+    description: npm or pnpm.
+    required: false
+    default: pnpm
+  root-kinds:
+    description: "The kind of each root, as a JSON object {\"<root>\": \"<kind>\"} (already validated by the workflow). Empty means the repository has not opted in (PF-1)."
+    required: false
+    default: ""
+  guardrails-result:
+    description: "What the guardrails step reported (its output `result`): pass, fail, warn, missing or skipped. A fixed value defeats the purpose."
+    required: false
+    default: ""
+outputs:
+  mode:
+    description: enforce or warn.
+    value: ${{ steps.policy.outputs.mode }}
+  findings:
+    description: How many findings the policy produced.
+    value: ${{ steps.policy.outputs.findings }}
+  blocking:
+    description: How many of them blocked (always 0 in warn mode).
+    value: ${{ steps.policy.outputs.blocking }}
+runs:
+  using: composite
+  steps:
+    - name: Apply the packages policy
+      id: policy
+      # The workflow step that calls this composite carries `if: ${{ !cancelled() }}`: the policy is also evaluated when an earlier validation failed.
+      if: ${{ !cancelled() }}
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        ENVIRONMENT: ${{ inputs.environment }}
+        INSTALL_DIRS: ${{ inputs.install-dirs }}
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        ROOT_KINDS: ${{ inputs.root-kinds }}
+        GUARDRAILS_RESULT: ${{ inputs.guardrails-result }}
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/packages-policy.sh"

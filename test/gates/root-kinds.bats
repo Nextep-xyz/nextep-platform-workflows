@@ -7,6 +7,8 @@
 #   RK-PROFILES  contracts/package-profiles.yml: every key is a kind of the vocabulary and every kind of the vocabulary has a key (the vocabulary
 #                lives in scripts/lib/root-kinds.sh AND in the description of the input, and the three are crossed); every `required` is an
 #                explicit list of @nextep/* names, without repeats
+#                and the catalog `packages:` (min_version and recommended_version of every package, plain X.Y.Z, recommended >= minimum, every
+#                required package has an entry)
 #   RK-VALIDATE  every workflow that declares `root-kinds` validates it BEFORE it is used (validate-inputs, flow cicd or node-ci), so a caller
 #                written wrong fails the job instead of producing a report
 
@@ -15,6 +17,7 @@ load 'lib/gates'
 PROFILES=contracts/package-profiles.yml
 VOCAB_LIB=scripts/lib/root-kinds.sh
 NAME_RE='^@nextep/[a-z0-9][a-z0-9._-]*$'
+SEMVER_RE='^(0|[1-9][0-9]{0,8})[.](0|[1-9][0-9]{0,8})[.](0|[1-9][0-9]{0,8})$' # the strict X.Y.Z of scripts/lib/semver.sh
 
 # vocab_of_lib: the kinds the validation accepts (the array ROOT_KINDS_VOCAB of the library), one per line
 vocab_of_lib() {
@@ -72,6 +75,35 @@ declaring_workflows() {
     dupes="$(gate_json "$profile" | jq -r --arg k "$kind" '.kinds[$k].required | group_by(.)[] | select(length > 1) | .[0]')"
     [[ -z $dupes ]] || gate_violation "$profile" "kind '$kind' lists '${dupes//$'\n'/, }' more than once"
   done <<<"$profile_keys"
+  # the catalog (`packages:`): the minimum and the recommended version of every @nextep/* package, plain X.Y.Z, recommended >= minimum, and every
+  # package that a kind requires is in it (a requirement without a catalog entry would have no floor)
+  local catalog_names min rec lowest
+  if ! gate_json "$profile" | jq -e '(.packages | type == "object") and (.packages | length > 0)' >/dev/null; then
+    gate_violation "$profile" "must declare 'packages' as an object with at least one entry: the catalog of minimum and recommended versions (a gate that finds nothing proves nothing)"
+  else
+    catalog_names="$(gate_json "$profile" | jq -r '.packages | keys[]' | sort -u)"
+    while IFS= read -r pkg; do
+      [[ -n $pkg ]] || continue
+      [[ $pkg =~ $NAME_RE ]] || gate_violation "$profile" "the catalog entry '$pkg' is not a @nextep/* package name (^@nextep/[a-z0-9][a-z0-9._-]*\$)"
+      min="$(gate_json "$profile" | jq -r --arg p "$pkg" '.packages[$p].min_version // "" | if type == "string" then . else "" end')"
+      rec="$(gate_json "$profile" | jq -r --arg p "$pkg" '.packages[$p].recommended_version // "" | if type == "string" then . else "" end')"
+      if ! [[ $min =~ $SEMVER_RE ]]; then
+        gate_violation "$profile" "the catalog entry '$pkg' needs 'min_version' as a plain X.Y.Z (got '${min:-nothing}')"
+      elif ! [[ $rec =~ $SEMVER_RE ]]; then
+        gate_violation "$profile" "the catalog entry '$pkg' needs 'recommended_version' as a plain X.Y.Z (got '${rec:-nothing}')"
+      else
+        lowest="$(printf '%s\n%s\n' "$min" "$rec" | sort -V | head -n 1)"
+        [[ $lowest == "$min" ]] || gate_violation "$profile" "the catalog entry '$pkg' has recommended_version $rec below min_version $min (the recommendation can never be lower than the floor)"
+      fi
+    done <<<"$catalog_names"
+    while IFS= read -r kind; do
+      [[ -n $kind ]] || continue
+      while IFS= read -r pkg; do
+        [[ -n $pkg ]] || continue
+        grep -qxF "$pkg" <<<"$catalog_names" || gate_violation "$profile" "kind '$kind' requires '$pkg', which has no entry in the catalog 'packages' (a requirement without a minimum version)"
+      done < <(gate_json "$profile" | jq -r --arg k "$kind" '(.kinds[$k].required // []) | if type == "array" then .[] else empty end')
+    done <<<"$profile_keys"
+  fi
   # the description of the input a caller reads promises the same vocabulary, in every workflow that declares it
   for wf in "${declaring[@]}"; do
     n=$((n + 1))
