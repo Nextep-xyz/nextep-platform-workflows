@@ -442,6 +442,64 @@ YAML
   red enforcement.bats "lego-aws-environment-deploy.yml: job 'quality-and-security-gate': the policy needs the project installed"
 }
 
+# ---- EN-OPTIN: the early opt-in check (PF-1) -----------------------------------------------------------------------------------------------------
+@test "EN-OPTIN red: no opt-in step, one that runs after the install, with an 'if', with a foreign environment or root-kinds, in environment-deploy too, are named" {
+  en_fixture
+  yq -i 'del('"$GATEJOB"' | select(.name == "Packages opt-in"))' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate' must use the nextep-packages-optin composite exactly once (found 0)"
+
+  en_fixture
+  ENVDEP="$FX/.github/workflows/lego-aws-environment-deploy.yml"
+  yq -i 'del(.jobs["quality-and-security-gate"].steps[] | select(.name == "Packages opt-in"))' "$ENVDEP"
+  red enforcement.bats "lego-aws-environment-deploy.yml: job 'quality-and-security-gate' must use the nextep-packages-optin composite exactly once (found 0)"
+
+  # moved after the install and the quality gate: it would fail only after paying for them
+  en_fixture
+  yq -i '(.jobs["quality-and-security-gate"].steps) as $s | .jobs["quality-and-security-gate"].steps = (($s | map(select(.name != "Packages opt-in"))) + ($s | map(select(.name == "Packages opt-in"))))' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate': the opt-in check must run BEFORE the setup-project step"
+  [[ "$output" == *"must run BEFORE the quality-gate step"* ]] || { echo "$output"; return 1; }
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages opt-in")).if = "${{ inputs.root-kinds == '"''"' }}"' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate': the opt-in check has an 'if'"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages opt-in"))["continue-on-error"] = true' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate': the opt-in check sets continue-on-error"
+
+  en_fixture
+  yq -i '('"$GATEJOB"' | select(.name == "Packages opt-in")).with.environment = "prod"' "$CICD"
+  yq -i '('"$GATEJOB"' | select(.name == "Packages opt-in")).with["root-kinds"] = "{}"' "$CICD"
+  red enforcement.bats "lego-aws-cicd.yml: job 'quality-and-security-gate': the opt-in check must receive 'environment:"
+  [[ "$output" == *"the opt-in check must receive 'root-kinds:"* ]] || { echo "$output"; return 1; }
+}
+
+@test "EN-OPTIN red: the composite that runs the full phase, hands over a foreign variable or runs something else is named; an empty tree is '0 subjects'" {
+  en_fixture
+  OPTIN_ACTION="$FX/.github/actions/nextep-packages-optin/action.yml"
+  yq -i '.runs.steps[0].env.POLICY_PHASE = "full"' "$OPTIN_ACTION"
+  red enforcement.bats ".github/actions/nextep-packages-optin/action.yml: must hand POLICY_PHASE: optin to the script"
+
+  en_fixture
+  yq -i '.runs.steps[0].env.MY_SECRET = "${{ secrets.X }}"' "$OPTIN_ACTION"
+  red enforcement.bats ".github/actions/nextep-packages-optin/action.yml: hands the variable 'MY_SECRET' to the script"
+  [[ "$output" == *"nextep-packages-optin/action.yml: code line"* ]] || { echo "$output"; return 1; }
+
+  en_fixture
+  yq -i '.runs.steps[0].run = "echo skip"' "$OPTIN_ACTION"
+  red enforcement.bats ".github/actions/nextep-packages-optin/action.yml: a step runs something other than scripts/packages-policy.sh"
+
+  en_fixture
+  rm -rf "$FX/.github/actions/nextep-packages-optin"
+  red enforcement.bats ".github/actions/nextep-packages-optin/action.yml: does not exist"
+
+  rm -rf "$FX"
+  mkdir -p "$FX"
+  run bats --filter '^EN-OPTIN:' "$REPO_ROOT/test/gates/enforcement.bats"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"0 subjects discovered"* ]] || { echo "$output"; return 1; }
+}
+
 # ---- F4: the docs say what the code does ----------------------------------------------------------------------------------------------------------
 @test "EN-DOC red: a finding the policy can print that the runbook does not explain, a missing section 12, an AGENTS.md without the function and a TODO are named; no policy script is '0 subjects'" {
   en_fixture

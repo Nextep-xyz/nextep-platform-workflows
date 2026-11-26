@@ -9,6 +9,9 @@
 #   EN-SAFE    the policy (composite + script) and the libraries it shares: no network, no install, no secret, no id-token, no environment dump,
 #              no caller command, no `continue-on-error` (the warning is an exit code); the catalog is read from the profile only, never from the
 #              environment of the run
+#   EN-OPTIN   the early opt-in check (PF-1) is in the gate job of every workflow that carries the policy, once, right after the validation of the
+#              inputs and BEFORE the install, the lint and the tests; it is always on, wired to the environment and to root-kinds, and its composite
+#              runs the policy script in the phase `optin` and nothing else (a repository that has not opted in must fail in seconds, not after 19 minutes)
 #   EN-WIRE / EN-COE / EN-NOKNOB / EN-SAFE-GUARD  the wiring of the workflows: the guard and the policy are in the gate job, in order, always on (no
 #              input switches them off, and the one input whose name is about the guard is the COMMAND it runs), with no continue-on-error
 
@@ -241,6 +244,79 @@ step_indexes() {
   done
   ((total > 0)) || gate_violation ".github/workflows" "no job runs the package guard or the packages policy (a gate that finds nothing proves nothing)"
   gate_finish EN-WIRE
+}
+
+# ---- the early opt-in check (PF-1) -----------------------------------------------------------------------------------------------------------------
+OPTIN_COMPOSITE=.github/actions/nextep-packages-optin/action.yml
+# The environment the opt-in composite may hand to its script: the data of the policy, and the phase that reduces it to PF-1.
+EN_OPTIN_ENV=(SCRIPTS ENVIRONMENT INSTALL_DIRS PACKAGE_MANAGER ROOT_KINDS POLICY_PHASE)
+# Steps that must come AFTER the opt-in check: everything that installs or runs a command of the caller (found by the composite they use).
+EN_OPTIN_BEFORE=(setup-project quality-gate package-guardrails nextep-packages-policy)
+EN_OPTIN_REQUIRED=(lego-aws-cicd lego-aws-environment-deploy)
+
+@test "EN-OPTIN: every job that carries the packages policy has the opt-in check once, after validate-inputs and before the install, the quality gate, the guard and the policy; it is always on and its composite runs the policy in phase optin only" {
+  gate_require_tools yq jq
+  gate_discover_lego_workflows EN-OPTIN
+  local workflows=("${GATE_SUBJECTS[@]}") wf json job o v c c_idx total=0 name has_job key line lines
+  GATE_VIOLATIONS=()
+  for wf in "${workflows[@]}"; do
+    json="$(gate_json "$wf")"
+    has_job=0
+    while IFS= read -r job; do
+      [[ -n $job ]] || continue
+      has_job=1
+      total=$((total + 1))
+      o="$(step_indexes "$json" "$job" nextep-packages-optin)"
+      if [[ "$(grep -c . <<<"$o")" != 1 ]]; then
+        gate_violation "$wf" "job '$job' must use the nextep-packages-optin composite exactly once (found $(grep -c . <<<"$o")): a repository that has not opted in must fail BEFORE the install and the tests"
+        continue
+      fi
+      v="$(step_indexes "$json" "$job" validate-inputs | head -n 1)"
+      [[ -n $v ]] && ((v < o)) ||
+        gate_violation "$wf" "job '$job': the opt-in check must run AFTER validate-inputs (a malformed root-kinds is reported by the validation, not by the policy)"
+      for c in "${EN_OPTIN_BEFORE[@]}"; do
+        while IFS= read -r c_idx; do
+          [[ -n $c_idx ]] || continue
+          ((o < c_idx)) || gate_violation "$wf" "job '$job': the opt-in check must run BEFORE the $c step (step #$c_idx): that is the whole point of failing early"
+        done < <(step_indexes "$json" "$job" "$c")
+      done
+      jq -e --arg j "$job" --argjson i "$o" '(.jobs[$j].steps[$i].if // "") == ""' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job': the opt-in check has an 'if': it is always on (the only switch is the environment, inside the script)"
+      jq -e --arg j "$job" --argjson i "$o" '.jobs[$j].steps[$i]["continue-on-error"] != true' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job': the opt-in check sets continue-on-error: a warning is an exit code, never a masked failure (G-COE)"
+      jq -e --arg j "$job" --argjson i "$o" '.jobs[$j].steps[$i].with.environment == "${{ inputs.environment }}"' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job': the opt-in check must receive 'environment: \${{ inputs.environment }}' (the environment decides the mode, and nothing else)"
+      jq -e --arg j "$job" --argjson i "$o" '.jobs[$j].steps[$i].with["root-kinds"] == "${{ inputs.root-kinds }}"' <<<"$json" >/dev/null ||
+        gate_violation "$wf" "job '$job': the opt-in check must receive 'root-kinds: \${{ inputs.root-kinds }}'"
+    done < <(jobs_with_policy "$json")
+    if ((!has_job)); then
+      name="$(basename "$wf" .yml)"
+      [[ " ${EN_OPTIN_REQUIRED[*]} " != *" $name "* ]] || gate_violation "$wf" "must run the opt-in check in its gate job (it is in the EN_OPTIN_REQUIRED list of this gate)"
+    fi
+  done
+  for name in "${EN_OPTIN_REQUIRED[@]}"; do
+    [[ -f $GATES_ROOT/.github/workflows/$name.yml ]] || gate_violation ".github/workflows/$name.yml" "is in the EN_OPTIN_REQUIRED list of the gate but does not exist (stale entry)"
+  done
+  ((total > 0)) || gate_violation ".github/workflows" "no job runs the packages policy (a gate that finds nothing proves nothing)"
+  if [[ -f $GATES_ROOT/$OPTIN_COMPOSITE ]]; then
+    while IFS= read -r key; do
+      [[ " ${EN_OPTIN_ENV[*]} " == *" $key "* ]] ||
+        gate_violation "$OPTIN_COMPOSITE" "hands the variable '$key' to the script: only ${EN_OPTIN_ENV[*]} are allowed (no secret, no token)"
+    done < <(gate_json "$OPTIN_COMPOSITE" | jq -r '[.runs.steps[].env // {} | keys[]] | unique | .[]')
+    gate_json "$OPTIN_COMPOSITE" | jq -e '[.runs.steps[].env.POLICY_PHASE // ""] | all(. == "optin")' >/dev/null ||
+      gate_violation "$OPTIN_COMPOSITE" "must hand POLICY_PHASE: optin to the script (any other phase would run the whole policy before the install)"
+    gate_json "$OPTIN_COMPOSITE" | jq -e '[.runs.steps[].run // ""] | all(contains("packages-policy.sh"))' >/dev/null ||
+      gate_violation "$OPTIN_COMPOSITE" "a step runs something other than scripts/packages-policy.sh"
+    gate_json "$OPTIN_COMPOSITE" | jq -e '[.runs.steps[] | select(has("uses"))] | length == 0' >/dev/null ||
+      gate_violation "$OPTIN_COMPOSITE" "uses another action (gate G11 forbids a composite inside a composite)"
+    lines="$(code_lines "$OPTIN_COMPOSITE" | grep -nE 'secrets\.|github\.token|GITHUB_TOKEN|GH_TOKEN|id-token|continue-on-error|permissions:' || true)"
+    while IFS= read -r line; do
+      [[ -n $line ]] && gate_violation "$OPTIN_COMPOSITE" "code line ${line%%:*} mentions a secret, the token, id-token, permissions or continue-on-error: the opt-in check needs none of them"
+    done <<<"$lines"
+  else
+    gate_violation "$OPTIN_COMPOSITE" "does not exist (the workflows use it)"
+  fi
+  gate_finish EN-OPTIN
 }
 
 @test "EN-NOKNOB: no input of any workflow or contract can lower, skip or switch off the policy (a name about enforce, packages-mode, guardrail, policy, skip, relax, warn, bypass, override or disable is a violation unless declared twice)" {

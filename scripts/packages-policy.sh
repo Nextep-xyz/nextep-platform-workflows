@@ -9,6 +9,9 @@
 #      GUARDRAILS_RESULT  what the guardrails step reported: pass | fail | warn | missing | skipped. Empty is read as skipped. `skipped` (or empty)
 #                         in a repository that has an IaC root is PF-7 (the guard did not run); `missing` is PF-7 (no command / no such command);
 #                         `fail` and `warn` are PF-5; anything else is PF-5 (fail-closed).
+#      POLICY_PHASE       full (default) | optin. `optin` is the early check (docs/runbook.md section 12.2): it evaluates ONLY PF-1, which needs
+#                         nothing but the input `root-kinds` and the files on disk, so a repository that has not opted in fails (dev, stg) or warns
+#                         (prod) in seconds, BEFORE the install, the lint and the tests. The mode is the same function of the environment.
 #      GITHUB_STEP_SUMMARY GITHUB_OUTPUT  (set by the runner; the summary defaults to stdout)
 # Findings (the table of the spec, see docs/runbook.md section 12):
 #   PF-1 no root-kinds (no opt-in)         PF-2 an install root without a declared kind      PF-3 a package required by the kind is missing
@@ -56,17 +59,22 @@ md_cell() {
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# the phase of the run: the full policy, or only the early opt-in check (PF-1)
+phase="${POLICY_PHASE:-full}"
+title="Package policy"
+[[ $phase != optin ]] || title="Package opt-in"
+
 # --- an internal error: it blocks in enforce, it only warns in warn -----------------------------------------------------------------------
 internal_error() { # internal_error <reason>
   local why
   why="$(safe_detail "$1")"
   if [[ $mode == enforce ]]; then
     printf '::error title=packages policy::packages policy (environment %s): the policy could not be evaluated: %s\n' "$env_shown" "$(annot "$why")"
-    printf '### Package policy ❌ could not be evaluated in %s\n\n%s\n' "$env_shown" "$why" >>"$summary"
+    printf '### %s ❌ could not be evaluated in %s\n\n%s\n' "$title" "$env_shown" "$why" >>"$summary"
     exit 1
   fi
   printf '::warning title=packages policy::packages policy (environment %s): the policy could not be evaluated, nothing is blocked in this environment: %s\n' "$env_shown" "$(annot "$why")"
-  printf '### Package policy ⚠️ could not be evaluated in %s (not blocking)\n\n%s\n' "$env_shown" "$why" >>"$summary"
+  printf '### %s ⚠️ could not be evaluated in %s (not blocking)\n\n%s\n' "$title" "$env_shown" "$why" >>"$summary"
   exit 0
 }
 last_error_line() { # the last line of a stderr file, without the workflow command prefix
@@ -74,11 +82,12 @@ last_error_line() { # the last line of a stderr file, without the workflow comma
 }
 
 # --- the verdict of the evidence (the same reading as the block) --------------------------------------------------------------------------
+[[ $phase == full || $phase == optin ]] || internal_error "unknown POLICY_PHASE '$(safe_name "$phase")' (expected full or optin)"
 findings="" iac_roots=""
 if ! findings="$("$here/packages-evidence.sh" findings 2>"$work/err")"; then
   internal_error "packages-evidence findings failed: $(last_error_line "$work/err")"
 fi
-if ! iac_roots="$("$here/packages-evidence.sh" iac-roots 2>"$work/err")"; then
+if [[ $phase == full ]] && ! iac_roots="$("$here/packages-evidence.sh" iac-roots 2>"$work/err")"; then
   internal_error "packages-evidence iac-roots failed: $(last_error_line "$work/err")"
 fi
 jq -e 'type == "array"' <<<"$findings" >/dev/null 2>&1 || internal_error "packages-evidence findings did not print a JSON array"
@@ -103,6 +112,8 @@ add_extra() { # add_extra <id> <detail>
 }
 has_iac=0
 [[ -z $iac_roots ]] || has_iac=1
+# the early opt-in check knows nothing of the guard (it runs before the install): only the full phase reads its result
+[[ $phase == full ]] || guard_result="pass"
 case "$guard_result" in
   pass) ;;
   fail | warn) add_extra PF-5 "the guardrails command of the caller failed (result $guard_result)" ;;
@@ -113,6 +124,8 @@ case "$guard_result" in
   *) add_extra PF-5 "the guardrails step reported an unknown result '$(safe_version "$guard_result")'" ;;
 esac
 all="$(jq -c --argjson extra "$extra" '. + $extra | sort_by(.id, .root, (.package // ""), (.version // ""))' <<<"$findings")"
+# optin: the early check carries PF-1 and nothing else (the rest needs the install and the results, and stays in the full phase)
+if [[ $phase == optin ]]; then all="$(jq -c '[.[] | select(.id == "PF-1")]' <<<"$all")"; fi
 
 # --- one message per finding --------------------------------------------------------------------------------------------------------------
 message() { # message <id> <root> <kind> <package> <version> <min> <recommended> <detail>
@@ -160,14 +173,18 @@ done < <(jq -r '.[] | [.id, .root, .kind, (.package // ""), (.version // ""), (.
 # --- the summary: a section every time, honest about what it did and about the environment ---------------------------------------------------
 {
   if ((total == 0)); then
-    printf '### Package policy ✅ passed in %s (mode %s)\n\nNo finding. The policy evaluated every root and every %s package against the catalog.\n' "$env_shown" "$mode" "$(code '@nextep/*')"
+    if [[ $phase == optin ]]; then
+      printf '### %s ✅ declared in %s (mode %s)\n\nThe repository declares %s. The rest of the policy runs after the install and the quality gate.\n' "$title" "$env_shown" "$mode" "$(code root-kinds)"
+    else
+      printf '### %s ✅ passed in %s (mode %s)\n\nNo finding. The policy evaluated every root and every %s package against the catalog.\n' "$title" "$env_shown" "$mode" "$(code '@nextep/*')"
+    fi
   else
     if ((blocking > 0)); then
-      printf '### Package policy ❌ blocking in %s (mode %s)\n\n' "$env_shown" "$mode"
+      printf '### %s ❌ blocking in %s (mode %s)\n\n' "$title" "$env_shown" "$mode"
     elif [[ $mode == warn ]]; then
-      printf '### Package policy ⚠️ not blocking in %s (mode %s)\n\n' "$env_shown" "$mode"
+      printf '### %s ⚠️ not blocking in %s (mode %s)\n\n' "$title" "$env_shown" "$mode"
     else
-      printf '### Package policy ⚠️ warnings in %s (mode %s, nothing blocks)\n\n' "$env_shown" "$mode"
+      printf '### %s ⚠️ warnings in %s (mode %s, nothing blocks)\n\n' "$title" "$env_shown" "$mode"
     fi
     printf '| Finding | Result | Where | What |\n|---|---|---|---|\n'
     printf '%s\n' "${rows[@]}"

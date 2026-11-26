@@ -1,0 +1,44 @@
+name: nextep-packages-optin
+description: The early opt-in check of the packages policy (finding PF-1). It runs right after the checkout and BEFORE the install, the lint and the tests, so a repository that has not declared `root-kinds` fails in seconds in dev and stg and only warns in prod. It evaluates PF-1 and nothing else (the rest of the policy needs the install and the results and runs later, in nextep-packages-policy). The mode comes only from the environment (scripts/lib/enforcement.sh); there is no input that relaxes it. It reads files already on disk; no network, no secret, no permission.
+inputs:
+  environment:
+    description: The environment of the run (dev, stg or prod). It decides the mode; anything else is treated as enforce.
+    required: true
+  install-dirs:
+    description: Comma separated package roots (the same value the install will use).
+    required: false
+    default: "."
+  package-manager:
+    description: npm or pnpm.
+    required: false
+    default: pnpm
+  root-kinds:
+    description: "The kind of each root, as a JSON object {\"<root>\": \"<kind>\"} (already validated by the workflow). Empty means the repository has not opted in (PF-1)."
+    required: false
+    default: ""
+outputs:
+  mode:
+    description: enforce or warn.
+    value: ${{ steps.optin.outputs.mode }}
+  findings:
+    description: How many findings the check produced (0 or 1).
+    value: ${{ steps.optin.outputs.findings }}
+  blocking:
+    description: How many of them blocked (always 0 in warn mode).
+    value: ${{ steps.optin.outputs.blocking }}
+runs:
+  using: composite
+  steps:
+    - name: Check the opt-in of the repository
+      id: optin
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts
+        ENVIRONMENT: ${{ inputs.environment }}
+        INSTALL_DIRS: ${{ inputs.install-dirs }}
+        PACKAGE_MANAGER: ${{ inputs.package-manager }}
+        ROOT_KINDS: ${{ inputs.root-kinds }}
+        POLICY_PHASE: optin
+      run: |
+        set -euo pipefail
+        "$SCRIPTS/packages-policy.sh"

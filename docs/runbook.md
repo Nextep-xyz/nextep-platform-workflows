@@ -562,8 +562,15 @@ and **anything else (an empty value, `Prod`, `production`) is `enforce`**: what 
 
 ### 12.2 What runs (and where)
 
-In the gate job of both workflows, after the quality gate and before the evidence and the end stamp (the order is a gate, `EN-WIRE`; every step runs with `if: ${{ !cancelled() }}`):
+In the gate job of both workflows. The **early opt-in check** runs first, right after `validate-inputs` and **before the install, the lint and the tests** (gate `EN-OPTIN`); the rest runs
+after the quality gate and before the evidence and the end stamp (the order is a gate, `EN-WIRE`; every step runs with `if: ${{ !cancelled() }}`):
 
+0. **`nextep-packages-optin`** (composite, `scripts/packages-policy.sh` with `POLICY_PHASE=optin`, `v2.1.0`): evaluates **PF-1 and nothing else**, because PF-1 needs only the input `root-kinds`
+   and the files on disk. A repository that has not opted in fails in dev and stg **in seconds**, instead of paying for the install, the lint and the tests (about 19 minutes in a real run) to
+   learn it; in prod it warns and the run goes on. It is always on (no `if`, no input switches it) and takes its mode from the same function of the environment. The cost is accepted: whoever forgets
+   the opt-in does not see the red of their own tests in that run (the fix takes seconds and the next run shows them). The summary section is `### Package opt-in`. The rest of the findings
+   (PF-2..PF-9) and the guard stay in the later steps, because they depend on the install and on results. The full policy still reports PF-1 too, so in prod (where the check only warns)
+   the final section is complete.
 1. **`package-guardrails`** (composite, `scripts/package-guardrails.sh`): runs `guardrails-command` (input, default `make guardrails`: the CLI of `@nextep/cdk-guardrails`) **only when the
    repository has an IaC root** (declared `iac` or detected by CDK files). It maps the result by mode **inside the script**, never with `continue-on-error`: `rc 0` is `pass`; a red guard
    is `fail` (the step fails in dev and stg) or `warn` (exit 0 with a `::warning::` in prod); a command that does not exist is `missing`. The real result is the output `result`
@@ -584,7 +591,7 @@ hotfix to prod is not stopped from inside. Exceptions broken on purpose (`NX-EXC
 
 | You see | Meaning | Action |
 |---|---|---|
-| `PF-1 ... has not opted in` | no `root-kinds` | Declare the kind of every root: a back or a front declares two (`{".":"backend","infra":"iac"}`) |
+| `PF-1 ... has not opted in` (section `Package opt-in`, first step of the gate) | no `root-kinds` | Declare the kind of every root: a back or a front declares two (`{".":"backend","infra":"iac"}`) |
 | `PF-2 ... is an install root with no declared kind` | a root of `install-dirs` is not inside any declared root | Declare it in `root-kinds` |
 | `PF-3 ... does not declare @nextep/<pkg>` | the root of that kind lacks the package | Add the dependency (Release URL) and reinstall |
 | `PF-4 ... has CDK files but is not declared iac` | a CDK app hides under another kind | Declare it `iac` |
