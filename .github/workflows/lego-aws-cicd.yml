@@ -267,7 +267,7 @@ jobs:
           persist-credentials: false
       # parity: P-CI-05, H-01
       - name: Validate the inputs
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/validate-inputs@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           flow: cicd
           inputs-json: ${{ toJSON(inputs) }}
@@ -275,7 +275,7 @@ jobs:
       # repository that has not declared root-kinds fails here in seconds; in prod it only warns. The rest of the policy runs after the quality gate.
       - name: Packages opt-in
         id: packages-optin
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-optin@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-optin@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           environment: ${{ inputs.environment }}
           install-dirs: ${{ inputs.install-dirs }}
@@ -283,7 +283,7 @@ jobs:
           root-kinds: ${{ inputs.root-kinds }}
       # parity: P-CI-01
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -301,7 +301,7 @@ jobs:
       # parity: P-CI-02, P-CI-03, P-CI-04
       - name: Quality gate
         id: quality-gate
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/quality-gate@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -317,7 +317,7 @@ jobs:
       - name: Package guardrails
         id: package-guardrails
         if: ${{ !cancelled() }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-guardrails@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/package-guardrails@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -329,7 +329,7 @@ jobs:
       - name: Packages policy
         id: packages-policy
         if: ${{ !cancelled() }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-policy@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-policy@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           environment: ${{ inputs.environment }}
           install-dirs: ${{ inputs.install-dirs }}
@@ -340,7 +340,7 @@ jobs:
       # It sits before the end stamp because gate T9 keeps that stamp as the last step of the job.
       - name: Packages evidence
         if: ${{ always() && inputs.packages-evidence }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/nextep-packages-evidence@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           install-dirs: ${{ inputs.install-dirs }}
           package-manager: ${{ inputs.package-manager }}
@@ -384,7 +384,7 @@ jobs:
           persist-credentials: false
       # parity: P-CI-01
       - name: Set up the project
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -401,7 +401,7 @@ jobs:
           aws-region: ${{ inputs.aws-region }}
       # parity: P-CI-06, H-06
       - name: Assume the environment role
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
@@ -409,7 +409,7 @@ jobs:
       - name: Prepare the SSM tunnel
         id: tunnel
         if: ${{ inputs.db-access == 'ssm-tunnel' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/ssm-tunnel@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -418,7 +418,7 @@ jobs:
           db-endpoint-ssm-param: ${{ inputs.db-endpoint-ssm-param }}
       # parity: P-CI-09, P-CI-14
       - name: Migrate
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/migrate@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           mode: cicd
           project: ${{ inputs.project }}
@@ -478,7 +478,7 @@ jobs:
       # parity: P-CI-01
       - name: Set up the project
         if: ${{ inputs.compute != 'ecs' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/setup-project@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           package-manager: ${{ inputs.package-manager }}
           pnpm-version: ${{ inputs.pnpm-version }}
@@ -496,14 +496,14 @@ jobs:
       # parity: P-CI-06, H-06, H-07
       - name: Assume the environment role
         id: oidc
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/aws-oidc@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           role-arn: ${{ inputs.role-arn }}
           aws-region: ${{ inputs.aws-region }}
       # parity: P-CI-11, P-CI-12, H-08, H-13
       - name: Deploy (lambda or static)
         if: ${{ inputs.compute != 'ecs' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-lambda@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-lambda@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -517,7 +517,7 @@ jobs:
           deploy-env-secrets: ${{ inputs.deploy-env-secrets }}
       # parity: H-09
       - name: Post-deploy command
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/post-deploy@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -527,7 +527,7 @@ jobs:
       # parity: P-CI-07, P-CI-10, P-CI-13
       - name: Deploy the ECS service
         if: ${{ inputs.compute == 'ecs' }}
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-ecs@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/deploy-ecs@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           project: ${{ inputs.project }}
           environment: ${{ inputs.environment }}
@@ -564,7 +564,7 @@ jobs:
       - name: Report the deployment to the collector
         continue-on-error: true
         timeout-minutes: 2
-        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/telemetry@main
+        uses: Nextep-xyz/nextep-platform-workflows/.github/actions/telemetry@9b3aa4cd8ca7fd248ed05a191804645b2b4964f9
         with:
           telemetry-url: ${{ inputs.telemetry-url }}
           audience: ${{ inputs.telemetry-audience }}
